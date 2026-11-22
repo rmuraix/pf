@@ -4,7 +4,9 @@
 [![Build](https://github.com/rmuraix/pf/actions/workflows/build.yml/badge.svg)](https://github.com/rmuraix/pf/actions/workflows/build.yml)  
 A lightweight, interactive network monitor for the terminal.
 
-![screen shot](./static/pf_screenshot.png)
+![Flows view](./static/pf_flows.png)
+
+<img src="./static/pf_details.png" alt="Details view" width="49%"> <img src="./static/pf_events.png" alt="Events view" width="49%">
 
 `pf` groups TCP/UDP traffic on one interface into bidirectional **flows** with
 live bytes, packets and rates per direction. Views: **Flows** (the list),
