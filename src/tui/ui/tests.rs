@@ -124,9 +124,9 @@ fn flow_list_shows_endpoints_traffic_and_counters() {
         "PROTO",
         "LOCAL",
         "REMOTE",
-        "← IN",
-        "→ OUT",
-        "PKTS",
+        "← RECEIVED",
+        "→ SENT",
+        "PACKETS",
         "RATE",
         "LAST",
         "TCP",
@@ -158,7 +158,7 @@ fn status_bar_always_shows_interface_status_counters_and_keys() {
     for expected in [
         "eth0",
         "capturing",
-        "pkts 4",
+        "packets 4",
         "flows 3",
         "lost 0",
         "quit",
@@ -211,8 +211,7 @@ fn packet_loss_and_evictions_are_reported_separately() {
     let status = screen.lines().rev().nth(1).unwrap().to_owned();
 
     assert!(status.contains("lost 10"), "{status}");
-    assert!(status.contains("evicted flows"), "{status}");
-    assert!(status.contains("events 3"), "{status}");
+    assert!(status.contains("evicted: 12 flows, 3 events"), "{status}");
 }
 
 #[test]
@@ -250,7 +249,7 @@ fn selected_row_is_highlighted_and_follows_navigation() {
 
     let reversed_rows = |buffer: &Buffer| -> Vec<u16> {
         (0..buffer.area.height)
-            .filter(|&y| buffer[(5, y)].modifier.contains(Modifier::REVERSED))
+            .filter(|&y| buffer[(20, y)].modifier.contains(Modifier::REVERSED))
             .collect()
     };
     let first = reversed_rows(&render(&mut app, &theme, 140, 14));
@@ -290,9 +289,9 @@ fn narrow_terminals_drop_optional_columns_first() {
     let mut app = App::new(shared.live());
     for (width, kept, dropped) in [
         (140, "RATE", ""),
-        (100, "← IN", "RATE"),
-        (70, "LAST", "PKTS"),
-        (60, "REMOTE", "← IN"),
+        (100, "← RECEIVED", "RATE"),
+        (70, "LAST SEEN", "PACKETS"),
+        (60, "REMOTE", "RECEIVED"),
     ] {
         let screen = render_text(&mut app, width, 10);
         assert!(screen.contains(kept), "{width}: missing {kept}:\n{screen}");
@@ -480,8 +479,8 @@ fn color_theme_does_use_colours() {
     let shared = populated();
     let mut app = App::new(shared.live());
     let buffer = render(&mut app, &Theme::color(), 140, 10);
-    assert!(buffer.content.iter().any(|c| c.fg == Color::Cyan));
-    assert!(buffer.content.iter().any(|c| c.fg == Color::Yellow));
+    assert!(buffer.content.iter().any(|c| c.fg == Color::Green));
+    assert!(buffer.content.iter().any(|c| c.fg == Color::Magenta));
 }
 
 #[test]

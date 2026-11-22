@@ -150,7 +150,7 @@ fn draw_status(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
 
     if app.editing_filter {
         let prompt = format!("/ {}", app.filter_text);
-        let hint = "  Enter: apply  Esc: clear  (tcp udp icmp arp, port, ip)";
+        let hint = "  Enter: apply  Esc: clear  (e.g. tcp 443 192.168)";
         frame.render_widget(
             Line::from(vec![
                 Span::styled(prompt.clone(), theme.header),
@@ -191,7 +191,7 @@ fn stats_segments<'a>(app: &'a App, theme: &Theme) -> Vec<Vec<Span<'a>>> {
         segments.push(vec![Span::styled(" PAUSED ", theme.paused)]);
     }
     segments.push(vec![Span::raw(format!(
-        "pkts {}",
+        "packets {}",
         format::count(counters.packets)
     ))]);
     let flows = if app.flow_rows.len() == total_flows {
@@ -203,13 +203,13 @@ fn stats_segments<'a>(app: &'a App, theme: &Theme) -> Vec<Vec<Span<'a>>> {
     // Packet loss (never seen by this program) and evictions (seen, then
     // forgotten) are different things and are reported separately.
     segments.push(vec![Span::styled(
-        format!("lost {}", format::count(lost)),
+        format!("packets lost {}", format::count(lost)),
         if lost > 0 { theme.error } else { theme.dim },
     )]);
     let evicted = counters.flows_evicted + counters.events_evicted;
     if evicted > 0 {
         segments.push(vec![Span::raw(format!(
-            "evicted flows {} events {}",
+            "evicted: {} flows, {} events",
             format::count(counters.flows_evicted),
             format::count(counters.events_evicted)
         ))]);
@@ -226,7 +226,7 @@ fn key_hints<'a>(view: View, theme: &Theme) -> Vec<Vec<Span<'a>>> {
     };
     let mut hints = vec![hint("q", "quit")];
     hints.push(hint("Space", "pause"));
-    hints.push(hint("Tab", "view"));
+    hints.push(hint("Tab", "switch view"));
     hints.push(hint("/", "filter"));
     match view {
         View::Flows => {
@@ -259,13 +259,13 @@ impl FlowColumns {
             packets: true,
             rates: true,
         };
-        // PROTO + two endpoints + LAST, then the optional groups.
+        // PROTOCOL + two endpoints + LAST SEEN, then the optional groups.
         let needed = |c: &Self| {
             let count =
                 4 + 2 * usize::from(c.traffic) + usize::from(c.packets) + 2 * usize::from(c.rates);
-            let widths = 5
+            let widths = 8
                 + 2 * 21
-                + 6
+                + 9
                 + 20 * usize::from(c.traffic)
                 + 11 * usize::from(c.packets)
                 + 24 * usize::from(c.rates);
@@ -296,26 +296,26 @@ fn draw_flows(frame: &mut Frame, area: Rect, app: &mut App, theme: &Theme) {
         .map(|&i| flow_row(&snapshot.flows[i], snapshot.taken_at, &columns, theme))
         .collect();
 
-    let mut labels = vec!["PROTO", "LOCAL", "REMOTE"];
+    let mut labels = vec!["PROTOCOL", "LOCAL", "REMOTE"];
     let mut widths = vec![
-        Constraint::Length(5),
+        Constraint::Length(8),
         Constraint::Fill(1),
         Constraint::Fill(1),
     ];
     if columns.traffic {
-        labels.extend(["← IN", "→ OUT"]);
+        labels.extend(["← RECEIVED", "→ SENT"]);
         widths.extend([Constraint::Length(10); 2]);
     }
     if columns.packets {
-        labels.push("PKTS ←/→");
+        labels.push("PACKETS ←/→");
         widths.push(Constraint::Length(11));
     }
     if columns.rates {
-        labels.extend(["RATE ←", "RATE →"]);
+        labels.extend(["← RATE", "→ RATE"]);
         widths.extend([Constraint::Length(12); 2]);
     }
-    labels.push("LAST");
-    widths.push(Constraint::Length(6));
+    labels.push("LAST SEEN");
+    widths.push(Constraint::Length(9));
 
     let table = Table::new(rows, widths)
         .header(header_row(labels, theme))
@@ -354,7 +354,10 @@ fn flow_row<'a>(
         cells.push(Cell::from(format::rate(flow.rate.outbound)).style(theme.outbound));
     }
     let idle = now.duration_since(flow.last_seen).unwrap_or(Duration::ZERO);
-    cells.push(Cell::from(format::age(idle)));
+    cells.push(Cell::from(match format::age(idle) {
+        age if age == "now" => age,
+        age => format!("{age} ago"),
+    }));
     Row::new(cells)
 }
 
@@ -447,7 +450,7 @@ fn describe_unparsed(frame: &UnparsedFrame) -> EventText {
         (UnparsedReason::Filtered, _) => ("filtered".to_owned(), false),
     };
     EventText {
-        protocol: "N/A",
+        protocol: "unknown",
         direction: None,
         endpoints: frame.ethernet.map_or_else(
             || "-".to_owned(),
@@ -504,16 +507,16 @@ fn draw_events(frame: &mut Frame, area: Rect, app: &mut App, theme: &Theme) {
         })
         .collect();
 
-    let mut labels = vec!["TIME (UTC)", "PROTO", "DIR", "ENDPOINTS", "INFO"];
+    let mut labels = vec!["TIME (UTC)", "PROTOCOL", "DIRECTION", "ENDPOINTS", "INFO"];
     let mut widths = vec![
         Constraint::Length(12),
-        Constraint::Length(6),
-        Constraint::Length(5),
+        Constraint::Length(8),
+        Constraint::Length(9),
         Constraint::Fill(2),
         Constraint::Fill(2),
     ];
     if show_len {
-        labels.push("LEN");
+        labels.push("SIZE");
         widths.push(Constraint::Length(8));
     }
     let table = Table::new(rows, widths)
@@ -639,12 +642,15 @@ fn draw_history(frame: &mut Frame, area: Rect, detail: &FlowDetail, scroll: usiz
         rows,
         [
             Constraint::Length(12),
-            Constraint::Length(6),
+            Constraint::Length(9),
             Constraint::Length(9),
             Constraint::Fill(1),
         ],
     )
-    .header(header_row(["TIME", "DIR", "LEN", "TCP FLAGS"], theme));
+    .header(header_row(
+        ["TIME", "DIRECTION", "SIZE", "TCP FLAGS"],
+        theme,
+    ));
     frame.render_widget(table, table_area);
 }
 
