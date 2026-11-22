@@ -67,10 +67,19 @@ jobs:
           for mode in quit sigint; do
             sudo python3 .github/scripts/tui-smoke.py "$mode" -- "$pf" -i lo
           done
+      # Generated on every Linux run, not only for tags: a dependency with a
+      # license that is not accepted in about.toml must fail the pull request,
+      # not the release. macOS only needs it for the release archive.
+      - name: Cache cargo-about
+        if: ${{ runner.os == 'Linux' || startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-about
+          key: cargo-about-${{ runner.os }}-${{ runner.arch }}-v1
       - name: Generate license.html
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ runner.os == 'Linux' || startsWith(github.ref, 'refs/tags/') }}
         run: |
-          cargo install --locked cargo-about --features cli
+          command -v cargo-about > /dev/null || cargo install --locked cargo-about --features cli
           cargo about generate about.hbs > license.html
       - uses: actions/upload-artifact@v7
         with:
