@@ -5,19 +5,15 @@
 //! be sent to another thread or task and the backend can later be replaced
 //! without touching the parser.
 //!
-//! # Limitations (current `pnet` backend)
+//! # Metadata provided by the libpcap backend
 //!
-//! `pnet::datalink` only yields the raw bytes of each frame. Therefore:
-//!
-//! * `timestamp` is **not** a kernel/hardware capture time. It is read from the
-//!   system clock (`SystemTime::now()`) when user space receives the frame.
-//!   It includes scheduling/queueing delay, can be later than the real arrival
-//!   time, and can be identical for several frames when the OS hands them over
-//!   in a batch (e.g. BPF reads on macOS). It follows the wall clock, so it can
-//!   jump backwards if the clock is adjusted.
-//! * The on-the-wire length is unknown. [`CapturedFrame::captured_len`] is the
-//!   number of bytes delivered, which may be smaller than the original frame if
-//!   the backend truncated it (pnet's default read buffer is 4096 bytes).
+//! * `timestamp` is the capture time libpcap reports (kernel/driver time,
+//!   microsecond resolution, wall clock). It is not the time user space read
+//!   the frame. Being wall-clock time, it can jump if the system clock is
+//!   adjusted.
+//! * [`CapturedFrame::original_len`] is the length of the frame on the wire;
+//!   [`CapturedFrame::captured_len`] is the number of bytes in `data`. They
+//!   differ when the capture was truncated by the snapshot length.
 //! * Frame direction (inbound/outbound) is not provided; the parser infers it
 //!   from the host's IP addresses.
 
@@ -29,23 +25,30 @@ use std::time::SystemTime;
 pub enum LinkType {
     /// Ethernet II frame starting at byte 0.
     Ethernet,
-    /// macOS loopback as delivered by pnet's BPF backend: a 14-byte all-zero
-    /// placeholder Ethernet header followed by an IPv4/IPv6 packet.
-    Loopback,
-    /// No link-layer header: the data starts with an IPv4/IPv6 header
-    /// (macOS point-to-point/TUN interfaces).
+    /// No link-layer header: the data starts with an IPv4/IPv6 header.
     RawIp,
+    /// BSD loopback (`DLT_NULL`/`DLT_LOOP`): a 4-byte address-family header
+    /// followed by an IPv4/IPv6 packet. macOS/BSD loopback and Windows Npcap
+    /// loopback adapters.
+    Loopback,
+    /// Linux cooked capture v1 (`DLT_LINUX_SLL`, 16-byte header), e.g. the
+    /// `any` pseudo-interface.
+    LinuxSll,
+    /// Linux cooked capture v2 (`DLT_LINUX_SLL2`, 20-byte header).
+    LinuxSll2,
 }
 
 /// An owned frame as received from the capture backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapturedFrame {
-    /// Time user space received the frame; see the module docs for accuracy.
+    /// Time the frame was captured; see the module docs for accuracy.
     pub timestamp: SystemTime,
     /// Name of the interface the frame was captured on.
     pub interface: Arc<str>,
     pub link_type: LinkType,
-    /// Raw bytes exactly as delivered by the backend.
+    /// Length of the frame on the wire (may exceed `data.len()`).
+    pub original_len: usize,
+    /// Captured bytes, starting with the header described by `link_type`.
     pub data: Vec<u8>,
 }
 
@@ -60,14 +63,18 @@ impl CapturedFrame {
 mod tests {
     use super::*;
 
-    #[test]
-    fn captured_len_matches_data() {
-        let frame = CapturedFrame {
+    fn frame(original_len: usize) -> CapturedFrame {
+        CapturedFrame {
             timestamp: SystemTime::UNIX_EPOCH,
             interface: Arc::from("eth0"),
             link_type: LinkType::Ethernet,
+            original_len,
             data: vec![0; 42],
-        };
-        assert_eq!(frame.captured_len(), 42);
+        }
+    }
+
+    #[test]
+    fn captured_len_matches_data() {
+        assert_eq!(frame(42).captured_len(), 42);
     }
 }

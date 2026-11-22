@@ -8,6 +8,7 @@ rust-version = "1.85"
 
 [dependencies]
 clap = { version = "4.5.4", features = ["derive"] }
-pnet = "0.35.0"
 anyhow = "1"
 ctrlc = "3"
+pcap = "2.5"
+etherparse = "0.21"

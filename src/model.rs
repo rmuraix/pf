@@ -79,7 +79,9 @@ impl NetEvent {
     }
 }
 
-/// Ethernet header fields of a frame that could not be turned into a [`NetEvent`].
+/// Link-layer header fields of a frame that could not be turned into a
+/// [`NetEvent`]. Addresses are zero when the link layer has none (raw IP,
+/// loopback) or not a 6-byte one (Linux cooked capture).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EthernetSummary {
     pub source: MacAddress,
@@ -96,6 +98,8 @@ pub enum UnparsedReason {
     UnsupportedProtocol,
     /// A header of the named protocol is too short or invalid.
     Malformed(&'static str),
+    /// IPv4/IPv6 fragment: the transport header is not reliably available.
+    Fragmented,
     /// Dropped by the `--noudp` option. (Reported like any other unparsed
     /// frame to keep the pre-refactor output.)
     Filtered,
@@ -106,7 +110,7 @@ pub struct UnparsedFrame {
     pub interface: String,
     /// Number of captured bytes.
     pub length: usize,
-    /// `None` when not even an Ethernet header could be read.
+    /// `None` when not even a link-layer header could be read.
     pub ethernet: Option<EthernetSummary>,
     pub reason: UnparsedReason,
 }

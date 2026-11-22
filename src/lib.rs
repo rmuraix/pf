@@ -1,5 +1,5 @@
 //! Pipeline: `capture` → `CapturedFrame` → `parser` → `NetEvent` → `render`.
-//! Only `capture` and `parser` use `pnet` types.
+//! Only `capture` uses `pcap` types and only `parser` uses `etherparse` types.
 
 pub mod capture;
 pub mod frame;
@@ -29,8 +29,11 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     // Install Ctrl-C handler for graceful shutdown
     let terminate = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let t2 = std::sync::Arc::clone(&terminate);
+    let stop = cap.stop_handle();
     ctrlc::set_handler(move || {
         t2.store(true, std::sync::atomic::Ordering::SeqCst);
+        // Wake the capture loop, which may be blocked on an idle interface.
+        stop.stop();
     })?;
 
     while !terminate.load(std::sync::atomic::Ordering::Relaxed) {

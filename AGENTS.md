@@ -2,10 +2,10 @@
 
 ## Project Structure & Modules
 - `src/main.rs`: CLI entry (clap).
-- `src/lib.rs`: Pipeline `capture → CapturedFrame → parser → NetEvent → render`. Only `capture` and `parser` use `pnet` types.
-- `src/capture.rs`: `pnet` datalink backend producing owned `CapturedFrame`s (`src/frame.rs`, documents timestamp/length limits).
+- `src/lib.rs`: Pipeline `capture → CapturedFrame → parser → NetEvent → render`. Only `capture` uses `pcap` types; only `parser` uses `etherparse` types.
+- `src/capture.rs`: libpcap backend (`pcap`) producing owned `CapturedFrame`s with the link type read from libpcap (`src/frame.rs`).
 - `src/parser.rs`, `src/parser/{packets.rs,direction.rs}`: `CapturedFrame` → `ParseOutcome` (event or explicit unparsed reason); no printing. `direction.rs` includes unit tests.
-- `src/model.rs`: pnet-free `NetEvent`/`ParseOutcome` types. `src/render.rs`: output formatting.
+- `src/model.rs`: library-free `NetEvent`/`ParseOutcome` types. `src/render.rs`: output formatting.
 - `static/`: Assets (e.g., screenshot).
 - `.github/workflows/build.yml`: CI for build/test/release.
 
@@ -37,4 +37,4 @@
 
 ## Security & Platform Notes
 - Packet capture may require elevated privileges; prefer Linux capabilities over full sudo for binaries.
-- Windows builds require pnet prerequisites (see README “Requirement”).
+- libpcap is required to build (Npcap SDK on Windows) and Npcap at run time on Windows; see README “Requirements”. Windows CI only compiles/links; capture is untested there.
