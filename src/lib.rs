@@ -1,6 +1,9 @@
 //! Pipeline: `capture` → `CapturedFrame` → `parser` → `Observation` →
-//! `aggregate` (flows, event log) and `render`.
+//! `aggregate` (flows, event log) → `tui`. `pipeline` runs the first stages
+//! on worker threads; the UI only reads snapshots of the aggregated state.
 //! Only `capture` uses `pcap` types and only `parser` uses `etherparse` types.
+
+use std::io::IsTerminal;
 
 pub mod aggregate;
 pub mod capture;
@@ -8,7 +11,11 @@ pub mod flow;
 pub mod frame;
 pub mod model;
 pub mod parser;
-pub mod render;
+pub mod pipeline;
+pub mod tui;
+
+#[cfg(test)]
+mod testutil;
 
 /// Runtime configuration passed from the CLI layer.
 pub struct Config {
@@ -17,32 +24,37 @@ pub struct Config {
     pub no_color: bool,
 }
 
-/// Main runtime loop. Returns error instead of panicking.
+/// `NO_COLOR` counts when set to a non-empty value (<https://no-color.org>).
+fn color_disabled(config: &Config) -> bool {
+    config.no_color || std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty())
+}
+
+/// Opens the capture and runs the UI until the user quits. Returns an error
+/// instead of panicking; the terminal is restored before it is returned.
 pub fn run(config: Config) -> anyhow::Result<()> {
-    let mut cap: capture::Capture = capture::Capture::open(&config.interface)?;
+    anyhow::ensure!(
+        std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
+        "pf is an interactive TUI and needs a terminal: stdin and stdout must not be piped or redirected"
+    );
 
-    // Configure rendering
-    let disable_color = config.no_color || std::env::var_os("NO_COLOR").is_some();
-    crate::render::set_color_enabled(!disable_color);
+    // Opened before the UI starts so that errors (unknown interface, missing
+    // privileges) are printed as plain text.
+    let cap = capture::Capture::open(&config.interface)?;
+    let parser = parser::Parser::new(cap.host_ips().into_iter().collect(), config.noudp);
+    let pipeline = pipeline::Pipeline::spawn(cap, parser, aggregate::Limits::default())?;
 
-    let ips_vec: Vec<std::net::IpAddr> = cap.host_ips();
-    println!("IP address of this device:{:?}", ips_vec);
-    let parser = parser::Parser::new(ips_vec.into_iter().collect(), config.noudp);
-
-    // Install Ctrl-C handler for graceful shutdown
-    let terminate = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let t2 = std::sync::Arc::clone(&terminate);
-    let stop = cap.stop_handle();
-    ctrlc::set_handler(move || {
-        t2.store(true, std::sync::atomic::Ordering::SeqCst);
-        // Wake the capture loop, which may be blocked on an idle interface.
-        stop.stop();
-    })?;
-
-    while !terminate.load(std::sync::atomic::Ordering::Relaxed) {
-        if let Some(frame) = cap.next_frame()? {
-            render::print_outcome(&parser.parse(&frame));
-        }
+    // Raw mode turns Ctrl+C into a key event the UI handles itself; this is
+    // for signals sent from outside (kill, a closing terminal).
+    let stopper = pipeline.stopper();
+    if let Err(err) = ctrlc::set_handler(move || stopper.stop()) {
+        let _ = pipeline.shutdown();
+        return Err(err.into());
     }
-    Ok(())
+
+    let theme = tui::Theme::new(!color_disabled(&config));
+    let ui = tui::run(pipeline.shared(), &theme);
+    // The terminal is already restored here, so a capture error prints cleanly.
+    let capture = pipeline.shutdown();
+    ui?;
+    capture
 }
