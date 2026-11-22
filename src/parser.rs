@@ -480,4 +480,25 @@ mod tests {
             UnparsedReason::Malformed("Ethernet")
         );
     }
+
+    #[test]
+    fn truncated_icmp_echo_is_malformed_not_a_panic() {
+        // 4..8 bytes: valid ICMP header, too short for the echo header.
+        for len in 4..8 {
+            let mut icmp = vec![0u8; len];
+            for ty in [IcmpTypes::EchoRequest, IcmpTypes::EchoReply] {
+                MutableIcmpPacket::new(&mut icmp[..])
+                    .unwrap()
+                    .set_icmp_type(ty);
+                let f = frame(
+                    LinkType::Ethernet,
+                    ethernet(EtherTypes::Ipv4, &ipv4(IpNextHeaderProtocols::Icmp, &icmp)),
+                );
+                assert_eq!(
+                    reason(parser(false).parse(&f)),
+                    UnparsedReason::Malformed("ICMP")
+                );
+            }
+        }
+    }
 }

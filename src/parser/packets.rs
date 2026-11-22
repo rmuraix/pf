@@ -81,14 +81,14 @@ pub(crate) fn build_icmp_event(
     };
     let kind = match icmp_packet.get_icmp_type() {
         IcmpTypes::EchoReply => {
-            let p = echo_reply::EchoReplyPacket::new(packet).unwrap();
+            let p = echo_reply::EchoReplyPacket::new(packet)?;
             IcmpKind::EchoReply {
                 seq: p.get_sequence_number(),
                 id: p.get_identifier(),
             }
         }
         IcmpTypes::EchoRequest => {
-            let p = echo_request::EchoRequestPacket::new(packet).unwrap();
+            let p = echo_request::EchoRequestPacket::new(packet)?;
             IcmpKind::EchoRequest {
                 seq: p.get_sequence_number(),
                 id: p.get_identifier(),
