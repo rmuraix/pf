@@ -1,4 +1,4 @@
-use crate::model::{Direction, IcmpKind, NetEvent, Transport};
+use crate::model::{Direction, IcmpKind, NetEvent, ParseOutcome, Transport, UnparsedFrame};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static COLOR_ENABLED: AtomicBool = AtomicBool::new(true);
@@ -200,15 +200,36 @@ pub fn render_line(e: &NetEvent) -> String {
     }
 }
 
-pub fn print_event(e: &NetEvent) {
-    println!("{}", render_line(e));
+pub fn render_unparsed(f: &UnparsedFrame) -> String {
+    match &f.ethernet {
+        Some(eth) => format!(
+            "[{}]: {} ===== [Unknown] =====> {}; ethertype: EtherType({}) length: {}",
+            f.interface, eth.source, eth.destination, eth.ethertype, f.length
+        ),
+        None => format!(
+            "[{}]: Malformed Ethernet frame; length: {}",
+            f.interface, f.length
+        ),
+    }
+}
+
+pub fn render_outcome(outcome: &ParseOutcome) -> String {
+    match outcome {
+        ParseOutcome::Event(e) => render_line(e),
+        ParseOutcome::Unparsed(f) => render_unparsed(f),
+    }
+}
+
+pub fn print_outcome(outcome: &ParseOutcome) {
+    println!("{}", render_outcome(outcome));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Direction, IcmpKind, NetEvent, Transport};
-    use pnet::util::MacAddr;
+    use crate::model::{
+        Direction, EthernetSummary, IcmpKind, MacAddress, NetEvent, Transport, UnparsedReason,
+    };
     use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
@@ -281,9 +302,9 @@ mod tests {
             IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
             Transport::Arp {
                 operation: 1,
-                sender_mac: MacAddr(0, 1, 2, 3, 4, 5),
+                sender_mac: MacAddress([0, 1, 2, 3, 4, 5]),
                 sender_ip: Ipv4Addr::new(10, 0, 0, 2),
-                target_mac: MacAddr(0, 0, 0, 0, 0, 0),
+                target_mac: MacAddress([0, 0, 0, 0, 0, 0]),
                 target_ip: Ipv4Addr::new(10, 0, 0, 1),
             },
         );
@@ -291,6 +312,38 @@ mod tests {
         assert_eq!(
             line,
             "[eth0]: 00:01:02:03:04:05(10.0.0.2) ===== [ARP] =====> 00:00:00:00:00:00(10.0.0.1); operation: 1"
+        );
+    }
+
+    #[test]
+    fn render_unparsed_ethernet_unknown() {
+        let f = UnparsedFrame {
+            interface: "eth0".into(),
+            length: 60,
+            ethernet: Some(EthernetSummary {
+                source: MacAddress([0, 1, 2, 3, 4, 5]),
+                destination: MacAddress([0xff; 6]),
+                ethertype: 0x88cc,
+            }),
+            reason: UnparsedReason::UnsupportedEtherType,
+        };
+        assert_eq!(
+            render_unparsed(&f),
+            "[eth0]: 00:01:02:03:04:05 ===== [Unknown] =====> ff:ff:ff:ff:ff:ff; ethertype: EtherType(35020) length: 60"
+        );
+    }
+
+    #[test]
+    fn render_unparsed_without_ethernet_header() {
+        let f = UnparsedFrame {
+            interface: "eth0".into(),
+            length: 5,
+            ethernet: None,
+            reason: UnparsedReason::Malformed("Ethernet"),
+        };
+        assert_eq!(
+            render_unparsed(&f),
+            "[eth0]: Malformed Ethernet frame; length: 5"
         );
     }
 }

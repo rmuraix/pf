@@ -1,9 +1,11 @@
 # Repository Guidelines
 
 ## Project Structure & Modules
-- `src/main.rs`: CLI entry (clap). Initializes interface, receives frames via `pnet`, delegates to handlers.
-- `src/handler.rs`: Dispatch by EtherType to IPv4/IPv6/ARP and transport protocols.
-- `src/handler/{packets.rs,direction.rs}`: Parsers and pretty printers; `direction.rs` includes unit tests.
+- `src/main.rs`: CLI entry (clap).
+- `src/lib.rs`: Pipeline `capture → CapturedFrame → parser → NetEvent → render`. Only `capture` and `parser` use `pnet` types.
+- `src/capture.rs`: `pnet` datalink backend producing owned `CapturedFrame`s (`src/frame.rs`, documents timestamp/length limits).
+- `src/parser.rs`, `src/parser/{packets.rs,direction.rs}`: `CapturedFrame` → `ParseOutcome` (event or explicit unparsed reason); no printing. `direction.rs` includes unit tests.
+- `src/model.rs`: pnet-free `NetEvent`/`ParseOutcome` types. `src/render.rs`: output formatting.
 - `static/`: Assets (e.g., screenshot).
 - `.github/workflows/build.yml`: CI for build/test/release.
 

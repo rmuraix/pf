@@ -1,6 +1,10 @@
+//! Pipeline: `capture` → `CapturedFrame` → `parser` → `NetEvent` → `render`.
+//! Only `capture` and `parser` use `pnet` types.
+
 pub mod capture;
-pub mod handler;
+pub mod frame;
 pub mod model;
+pub mod parser;
 pub mod render;
 
 /// Runtime configuration passed from the CLI layer.
@@ -20,9 +24,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
 
     let ips_vec: Vec<std::net::IpAddr> = cap.host_ips();
     println!("IP address of this device:{:?}", ips_vec);
-    let ips_set: std::collections::HashSet<std::net::IpAddr> = ips_vec.into_iter().collect();
-    let ips = std::sync::Arc::new(ips_set);
-    let iface_owned: pnet::datalink::NetworkInterface = cap.interface().clone();
+    let parser = parser::Parser::new(ips_vec.into_iter().collect(), config.noudp);
 
     // Install Ctrl-C handler for graceful shutdown
     let terminate = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -32,13 +34,8 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     })?;
 
     while !terminate.load(std::sync::atomic::Ordering::Relaxed) {
-        if let Some(frame) = cap.next_ethernet()? {
-            crate::handler::handle_ethernet_frame(
-                &iface_owned,
-                &frame,
-                std::sync::Arc::clone(&ips),
-                config.noudp,
-            );
+        if let Some(frame) = cap.next_frame()? {
+            render::print_outcome(&parser.parse(&frame));
         }
     }
     Ok(())
