@@ -11,15 +11,15 @@ log. It favours being simple and immediately readable over deep protocol
 analysis.
 
 ```
- Flows  Details  Events                                                                           sort: activity
-PROTO LOCAL                     REMOTE                    ← IN       → OUT      RATE ←       RATE →       LAST
-UDP   10.0.0.2:40123            1.1.1.1:53                4.2 KiB    920 B      1.4 KiB/s    306 B/s      1s
-TCP   10.0.0.2:22               10.0.0.15:60318           21.1 KiB   1.8 KiB    5.3 KiB/s    470 B/s      2s
-TCP   10.0.0.2:51432            142.250.196.110:443       2.3 KiB    12.0 KiB   475 B/s      2.4 KiB/s    3s
-TCP   10.0.0.2:51876            151.101.1.69:443          2.8 KiB    11.2 KiB   0 B/s        0 B/s        5s
-UDP   10.0.0.2:5353             224.0.0.251:5353          0 B        1000 B     0 B/s        0 B/s        9s
-eth0 capturing │ pkts 81 │ flows 5 │ lost 0
-q quit │ Space pause │ Tab view │ / filter │ ↑↓/jk move │ Enter open │ s sort
+ Flows  Details  Events                                                                    sort: activity
+PROTOCOL LOCAL                  REMOTE                    ← RECEIVED → SENT     ← RATE       → RATE       LAST SEEN
+UDP      10.0.0.2:40123         1.1.1.1:53                4.2 KiB    920 B      1.4 KiB/s    306 B/s      1s ago
+TCP      10.0.0.2:22            10.0.0.15:60318           21.1 KiB   1.8 KiB    5.3 KiB/s    470 B/s      2s ago
+TCP      10.0.0.2:51432         142.250.196.110:443       2.3 KiB    12.0 KiB   475 B/s      2.4 KiB/s    3s ago
+TCP      10.0.0.2:51876         151.101.1.69:443          2.8 KiB    11.2 KiB   0 B/s        0 B/s        5s ago
+UDP      10.0.0.2:5353          224.0.0.251:5353          0 B        1000 B     0 B/s        0 B/s        9s ago
+eth0 capturing │ packets 81 │ flows 5 │ packets lost 0
+q quit │ Space pause │ Tab switch view │ / filter │ ↑↓/jk move │ Enter open │ s sort
 ```
 
 ## Installation
@@ -55,7 +55,7 @@ is drawn in reverse video.
 
 | View | Shows |
 | --- | --- |
-| **Flows** (default) | One row per flow: protocol, local and remote endpoint, bytes in/out, packets in/out, current rate in/out, time since last packet. Columns are dropped on narrow terminals. |
+| **Flows** (default) | One row per flow: protocol, local and remote endpoint, bytes received/sent (`←`/`→`), packets, current rate per direction, time since the last packet. Columns are dropped on narrow terminals. |
 | **Details** | The selected flow: full endpoints, interface, state (open, closed, ended), first/last packet time, duration, packets, bytes and rate per direction, and the most recent packets (time offset, direction, length, TCP flags). |
 | **Events** | Recent packets that are not TCP/UDP flows: ICMP, ICMPv6, ARP, and frames that were unsupported, fragmented or malformed (with the reason). Newest first, times in UTC. |
 
@@ -106,7 +106,7 @@ the UI on separate threads (no async runtime):
 
 * The capture thread only reads packets and passes them on through a bounded
   channel; terminal speed cannot slow it down. If aggregation falls behind,
-  capture waits and the kernel drops packets, which is reported as `lost` (from
+  capture waits and the kernel drops packets, which is reported as `packets lost` (from
   libpcap statistics).
 * The aggregator owns all counters. The UI copies a snapshot of them about ten
   times a second, so heavy traffic does not make navigation sluggish.
@@ -127,8 +127,8 @@ seconds.
   merged into the old one. TCP sessions are not reconstructed beyond this.
 * **Bounds**: at most 4096 flows (the least recently active eighth is evicted
   when full), 64 packets of history per flow and 1000 events. Evictions are
-  counted (`evicted flows N events M` in the status bar) and never change the
-  totals. They are different from `lost`, which counts packets that were never
+  counted (`evicted: N flows, M events` in the status bar) and never change the
+  totals. They are different from `packets lost`, which counts packets that were never
   seen.
 
 ## ## Requirements
