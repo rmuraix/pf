@@ -1,77 +1,105 @@
-//! `pnet::datalink` capture backend. Yields owned [`CapturedFrame`]s; see
-//! [`crate::frame`] for what metadata is (not) available.
+//! libpcap capture backend. Yields owned [`CapturedFrame`]s; see
+//! [`crate::frame`] for the metadata provided.
 
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use pnet::datalink::{
-    self, Channel::Ethernet, Config as DlConfig, DataLinkReceiver, NetworkInterface,
-};
+use anyhow::Context;
+use pcap::{Active, BreakLoop, Device, Error as PcapError, IfFlags, Linktype};
 
 use crate::frame::{CapturedFrame, LinkType};
+
+/// Read timeout. libpcap blocks at most this long, so callers can poll for
+/// shutdown without busy-waiting.
+const READ_TIMEOUT_MS: i32 = 200;
+/// Maximum bytes captured per frame (large enough for any frame, incl. jumbo).
+const SNAPLEN: i32 = 65535;
 
 pub struct Capture {
     name: Arc<str>,
     link_type: LinkType,
-    rx: Box<dyn DataLinkReceiver>,
+    host_ips: Vec<IpAddr>,
+    cap: pcap::Capture<Active>,
 }
 
-/// Link type of the frames pnet delivers for an interface.
+/// Wakes a blocked [`Capture::next_frame`] from another thread (e.g. a Ctrl-C
+/// handler). `next_frame` then returns `Ok(None)`.
 ///
-/// On macOS/iOS pnet's BPF backend does not deliver Ethernet frames for
-/// loopback (zeroed 14-byte placeholder header + IP) and for point-to-point
-/// (TUN) interfaces (bare IP). Everywhere else frames are Ethernet.
-fn link_type(interface: &NetworkInterface) -> LinkType {
-    link_type_for(
-        cfg!(any(target_os = "macos", target_os = "ios")),
-        interface.is_up(),
-        interface.is_broadcast(),
-        interface.is_loopback(),
-        interface.is_point_to_point(),
-    )
+/// Needed because libpcap does not return on the read timeout on every
+/// platform when the interface is idle (Linux), so a shutdown flag alone
+/// would not be noticed until the next packet arrives.
+pub struct StopHandle(BreakLoop);
+
+impl StopHandle {
+    pub fn stop(&self) {
+        self.0.breakloop();
+    }
 }
 
-fn link_type_for(
-    bsd: bool,
-    up: bool,
-    broadcast: bool,
-    loopback: bool,
-    point_to_point: bool,
-) -> LinkType {
-    if !(bsd && up && !broadcast) {
-        LinkType::Ethernet
-    } else if loopback {
-        LinkType::Loopback
-    } else if point_to_point {
-        LinkType::RawIp
-    } else {
-        LinkType::Ethernet
+/// Maps a libpcap link-layer type to a supported [`LinkType`].
+fn link_type_from(linktype: Linktype) -> Option<LinkType> {
+    match linktype {
+        Linktype::ETHERNET => Some(LinkType::Ethernet),
+        Linktype::NULL | Linktype::LOOP => Some(LinkType::Loopback),
+        Linktype::RAW | Linktype::IPV4 | Linktype::IPV6 => Some(LinkType::RawIp),
+        Linktype::LINUX_SLL => Some(LinkType::LinuxSll),
+        Linktype::LINUX_SLL2 => Some(LinkType::LinuxSll2),
+        _ => None,
     }
+}
+
+/// Non-loopback addresses of all interfaces that are up.
+fn host_ips(devices: &[Device]) -> Vec<IpAddr> {
+    devices
+        .iter()
+        .filter(|d| d.flags.if_flags.contains(IfFlags::UP))
+        .flat_map(|d| d.addresses.iter().map(|a| a.addr))
+        .filter(|ip| !ip.is_loopback())
+        .collect()
+}
+
+/// Converts a libpcap timestamp (seconds, microseconds) to [`SystemTime`].
+fn timestamp(secs: u64, micros: u32) -> SystemTime {
+    SystemTime::UNIX_EPOCH + Duration::new(secs, micros.saturating_mul(1000))
 }
 
 impl Capture {
     pub fn open(iface_name: &str) -> anyhow::Result<Self> {
-        let interface: NetworkInterface = datalink::interfaces()
-            .into_iter()
-            .find(|iface: &NetworkInterface| iface.name == iface_name)
+        let devices = Device::list().context("pf: unable to list network interfaces")?;
+        let device = devices
+            .iter()
+            .find(|d| d.name == iface_name)
+            .cloned()
             .ok_or_else(|| anyhow::anyhow!("No such network interface: {}", iface_name))?;
 
-        let cfg = DlConfig {
-            read_timeout: Some(Duration::from_millis(200)),
-            ..Default::default()
-        };
+        let cap = pcap::Capture::from_device(device)
+            .and_then(|c| {
+                c.snaplen(SNAPLEN)
+                    .timeout(READ_TIMEOUT_MS)
+                    // Deliver frames as they arrive instead of batching until
+                    // the timeout (BPF/macOS batches otherwise).
+                    .immediate_mode(true)
+                    .open()
+            })
+            .map_err(|e| anyhow::anyhow!("pf: unable to open capture on {}: {}", iface_name, e))?;
 
-        let rx = match datalink::channel(&interface, cfg) {
-            Ok(Ethernet(_tx, rx)) => rx,
-            Ok(_) => return Err(anyhow::anyhow!("pf: unhandled channel type")),
-            Err(e) => return Err(anyhow::anyhow!("pf: unable to create channel: {}", e)),
-        };
+        let linktype = cap.get_datalink();
+        let link_type = link_type_from(linktype).ok_or_else(|| {
+            let name = linktype.get_name().unwrap_or_else(|_| "unknown".into());
+            anyhow::anyhow!(
+                "pf: unsupported link-layer type {} ({}) on {}",
+                name,
+                linktype.0,
+                iface_name
+            )
+        })?;
 
         Ok(Self {
-            link_type: link_type(&interface),
-            name: Arc::from(interface.name.as_str()),
-            rx,
+            link_type,
+            name: Arc::from(iface_name),
+            host_ips: host_ips(&devices),
+            cap,
         })
     }
 
@@ -80,31 +108,33 @@ impl Capture {
     }
 
     pub fn host_ips(&self) -> Vec<IpAddr> {
-        let mut ips: Vec<IpAddr> = Vec::new();
-        for interface in datalink::interfaces() {
-            if !interface.ips.is_empty() && interface.is_up() {
-                for ip_net in interface.ips {
-                    if !ip_net.ip().is_loopback() {
-                        ips.push(ip_net.ip());
-                    }
-                }
-            }
-        }
-        ips
+        self.host_ips.clone()
     }
 
-    /// Waits up to the read timeout (200 ms); `Ok(None)` means it elapsed
-    /// without a frame, so callers can check for shutdown.
+    pub fn stop_handle(&mut self) -> StopHandle {
+        StopHandle(self.cap.breakloop_handle())
+    }
+
+    /// Waits for a frame. `Ok(None)` means the read timeout (200 ms) elapsed
+    /// or [`StopHandle::stop`] was called, so callers should check for
+    /// shutdown and call again.
     pub fn next_frame(&mut self) -> anyhow::Result<Option<CapturedFrame>> {
-        match self.rx.next() {
-            Ok(packet) => Ok(Some(CapturedFrame {
-                // pnet provides no capture time; see `crate::frame`.
-                timestamp: SystemTime::now(),
-                interface: Arc::clone(&self.name),
-                link_type: self.link_type,
-                data: packet.to_vec(),
-            })),
-            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Ok(None),
+        match self.cap.next_packet() {
+            Ok(packet) => {
+                let ts = packet.header.ts;
+                Ok(Some(CapturedFrame {
+                    timestamp: timestamp(
+                        u64::try_from(ts.tv_sec).unwrap_or(0),
+                        u32::try_from(ts.tv_usec).unwrap_or(0),
+                    ),
+                    interface: Arc::clone(&self.name),
+                    link_type: self.link_type,
+                    original_len: packet.header.len as usize,
+                    data: packet.data.to_vec(),
+                }))
+            }
+            // `NoMorePackets` is what libpcap reports after `breakloop`.
+            Err(PcapError::TimeoutExpired | PcapError::NoMorePackets) => Ok(None),
             Err(e) => Err(anyhow::anyhow!("pf: unable to receive packet: {}", e)),
         }
     }
@@ -115,51 +145,63 @@ mod tests {
     use super::*;
 
     #[test]
-    fn non_bsd_is_always_ethernet() {
+    fn supported_link_types_are_mapped() {
+        assert_eq!(link_type_from(Linktype::ETHERNET), Some(LinkType::Ethernet));
+        assert_eq!(link_type_from(Linktype::NULL), Some(LinkType::Loopback));
+        assert_eq!(link_type_from(Linktype::LOOP), Some(LinkType::Loopback));
+        assert_eq!(link_type_from(Linktype::RAW), Some(LinkType::RawIp));
+        assert_eq!(link_type_from(Linktype::IPV4), Some(LinkType::RawIp));
+        assert_eq!(link_type_from(Linktype::IPV6), Some(LinkType::RawIp));
         assert_eq!(
-            link_type_for(false, true, false, true, false),
-            LinkType::Ethernet
+            link_type_from(Linktype::LINUX_SLL),
+            Some(LinkType::LinuxSll)
         );
         assert_eq!(
-            link_type_for(false, true, false, false, true),
-            LinkType::Ethernet
-        );
-    }
-
-    #[test]
-    fn bsd_loopback_and_tun_are_special() {
-        assert_eq!(
-            link_type_for(true, true, false, true, false),
-            LinkType::Loopback
-        );
-        assert_eq!(
-            link_type_for(true, true, false, false, true),
-            LinkType::RawIp
-        );
-        // Loopback wins over point-to-point.
-        assert_eq!(
-            link_type_for(true, true, false, true, true),
-            LinkType::Loopback
+            link_type_from(Linktype::LINUX_SLL2),
+            Some(LinkType::LinuxSll2)
         );
     }
 
     #[test]
-    fn bsd_regular_down_or_broadcast_is_ethernet() {
+    fn unsupported_link_types_are_not_guessed_as_ethernet() {
+        // 802.11, PPP, Bluetooth HCI, and an unknown value.
+        for lt in [105, 9, 187, 9999] {
+            assert_eq!(link_type_from(Linktype(lt)), None, "DLT {lt}");
+        }
+    }
+
+    #[test]
+    fn timestamp_keeps_microseconds() {
         assert_eq!(
-            link_type_for(true, true, true, false, false),
-            LinkType::Ethernet
+            timestamp(10, 250_000),
+            SystemTime::UNIX_EPOCH + Duration::from_millis(10_250)
         );
+    }
+
+    #[test]
+    fn host_ips_skip_loopback_and_down_interfaces() {
+        let dev = |name: &str, flags: IfFlags, ip: &str| Device {
+            name: name.into(),
+            desc: None,
+            addresses: vec![pcap::Address {
+                addr: ip.parse().unwrap(),
+                netmask: None,
+                broadcast_addr: None,
+                dst_addr: None,
+            }],
+            flags: pcap::DeviceFlags {
+                if_flags: flags,
+                connection_status: pcap::ConnectionStatus::Unknown,
+            },
+        };
+        let devices = [
+            dev("lo", IfFlags::UP | IfFlags::LOOPBACK, "127.0.0.1"),
+            dev("eth0", IfFlags::UP, "10.0.0.2"),
+            dev("eth1", IfFlags::empty(), "10.0.1.2"),
+        ];
         assert_eq!(
-            link_type_for(true, true, false, false, false),
-            LinkType::Ethernet
-        );
-        assert_eq!(
-            link_type_for(true, false, false, true, false),
-            LinkType::Ethernet
-        );
-        assert_eq!(
-            link_type_for(true, true, true, true, false),
-            LinkType::Ethernet
+            host_ips(&devices),
+            vec!["10.0.0.2".parse::<IpAddr>().unwrap()]
         );
     }
 }
