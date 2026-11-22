@@ -43,20 +43,30 @@ jobs:
         run: mise run build:release
       - name: test
         run: mise run test
-      - name: Capture smoke test (Linux)
-        # Live capture on the loopback interface: start-up, event parsing and
-        # a clean Ctrl-C shutdown (exit status 0). Needs root for raw capture.
+      - name: Non-interactive smoke test (Linux)
+        # pf is a TUI: with redirected output it must refuse to start, with a
+        # clear message and a non-zero exit status.
+        if: runner.os == 'Linux'
+        run: |
+          pf=./target/debug/pf
+          if [ "${GITHUB_REF}" != "${GITHUB_REF#refs/tags/}" ]; then pf=./target/release/pf; fi
+          status=0
+          "$pf" -i lo > refused.log 2>&1 || status=$?
+          cat refused.log
+          test "$status" -ne 0
+          grep -q "needs a terminal" refused.log
+      - name: TUI smoke test (Linux)
+        # Live capture on loopback inside a pseudo terminal: start-up, ICMP
+        # events, and a clean shutdown (exit status 0, terminal restored) via
+        # `q` and via SIGINT. Needs root for raw capture.
         if: runner.os == 'Linux'
         run: |
           # Binary of whichever profile this run built (a cache may hold both).
           pf=./target/debug/pf
           if [ "${GITHUB_REF}" != "${GITHUB_REF#refs/tags/}" ]; then pf=./target/release/pf; fi
-          sudo timeout --preserve-status -s INT 4 "$pf" -i lo --no-color > capture.log &
-          sleep 1
-          ping -c 2 127.0.0.1 > /dev/null
-          wait %1
-          cat capture.log
-          grep -q "ICMP echo" capture.log
+          for mode in quit sigint; do
+            sudo python3 .github/scripts/tui-smoke.py "$mode" -- "$pf" -i lo
+          done
       - name: Generate license.html
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         run: |

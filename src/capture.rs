@@ -16,6 +16,15 @@ const READ_TIMEOUT_MS: i32 = 200;
 /// Maximum bytes captured per frame (large enough for any frame, incl. jumbo).
 const SNAPLEN: i32 = 65535;
 
+/// Frames libpcap lost since the capture was opened.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CaptureStats {
+    /// Dropped because the kernel buffer was full (the reader was too slow).
+    pub dropped: u64,
+    /// Dropped by the network interface or its driver.
+    pub if_dropped: u64,
+}
+
 pub struct Capture {
     name: Arc<str>,
     link_type: LinkType,
@@ -24,7 +33,7 @@ pub struct Capture {
 }
 
 /// Wakes a blocked [`Capture::next_frame`] from another thread (e.g. a Ctrl-C
-/// handler). `next_frame` then returns `Ok(None)`.
+/// handler or the UI quitting). `next_frame` then returns `Ok(None)`.
 ///
 /// Needed because libpcap does not return on the read timeout on every
 /// platform when the interface is idle (Linux), so a shutdown flag alone
@@ -109,6 +118,15 @@ impl Capture {
 
     pub fn host_ips(&self) -> Vec<IpAddr> {
         self.host_ips.clone()
+    }
+
+    /// `None` if the platform cannot report statistics.
+    pub fn stats(&mut self) -> Option<CaptureStats> {
+        let stat = self.cap.stats().ok()?;
+        Some(CaptureStats {
+            dropped: u64::from(stat.dropped),
+            if_dropped: u64::from(stat.if_dropped),
+        })
     }
 
     pub fn stop_handle(&mut self) -> StopHandle {

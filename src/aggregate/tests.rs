@@ -1,118 +1,10 @@
 use super::*;
-use crate::model::{IcmpKind, MacAddress, NetEvent};
+use crate::model::{MacAddress, NetEvent};
+use crate::testutil::*;
 use std::net::Ipv4Addr;
-
-const HOST: &str = "10.0.0.2";
-const PEER: &str = "1.1.1.1";
-
-fn at(secs: u64) -> SystemTime {
-    SystemTime::UNIX_EPOCH + Duration::from_secs(secs)
-}
-
-fn ip(s: &str) -> IpAddr {
-    s.parse().unwrap()
-}
 
 fn tcp_flags(syn: bool, ack: bool, fin: bool, rst: bool) -> TcpFlags {
     TcpFlags { syn, ack, fin, rst }
-}
-
-const ACK: TcpFlags = TcpFlags {
-    syn: false,
-    ack: true,
-    fin: false,
-    rst: false,
-};
-
-/// A packet as the parser would report it.
-struct Pkt {
-    iface: &'static str,
-    time: u64,
-    direction: Direction,
-    src: (&'static str, u16),
-    dst: (&'static str, u16),
-    wire_len: usize,
-    transport: fn(u16, u16) -> Transport,
-}
-
-fn tcp_transport(src_port: u16, dst_port: u16) -> Transport {
-    Transport::Tcp {
-        src_port,
-        dst_port,
-        length: 0,
-        flags: ACK,
-    }
-}
-
-fn udp_transport(src_port: u16, dst_port: u16) -> Transport {
-    Transport::Udp {
-        src_port,
-        dst_port,
-        length: 0,
-        is_dns: false,
-    }
-}
-
-impl Pkt {
-    /// Outbound TCP from `HOST:50000` to `PEER:443`.
-    fn out() -> Self {
-        Self {
-            iface: "eth0",
-            time: 100,
-            direction: Direction::Outbound,
-            src: (HOST, 50000),
-            dst: (PEER, 443),
-            wire_len: 100,
-            transport: tcp_transport,
-        }
-    }
-
-    /// The reply to [`Pkt::out`].
-    fn inbound() -> Self {
-        Self {
-            direction: Direction::Inbound,
-            src: (PEER, 443),
-            dst: (HOST, 50000),
-            ..Self::out()
-        }
-    }
-
-    fn at(self, time: u64) -> Self {
-        Self { time, ..self }
-    }
-
-    fn len(self, wire_len: usize) -> Self {
-        Self { wire_len, ..self }
-    }
-
-    fn iface(self, iface: &'static str) -> Self {
-        Self { iface, ..self }
-    }
-
-    fn udp(self) -> Self {
-        Self {
-            transport: udp_transport,
-            ..self
-        }
-    }
-
-    fn observation(&self, flags: Option<TcpFlags>) -> Observation {
-        let mut transport = (self.transport)(self.src.1, self.dst.1);
-        if let (Transport::Tcp { flags: f, .. }, Some(flags)) = (&mut transport, flags) {
-            *f = flags;
-        }
-        Observation {
-            timestamp: at(self.time),
-            wire_len: self.wire_len,
-            outcome: ParseOutcome::Event(NetEvent::new(
-                self.iface,
-                self.direction,
-                ip(self.src.0),
-                ip(self.dst.0),
-                transport,
-            )),
-        }
-    }
 }
 
 fn feed(agg: &mut Aggregator, pkt: Pkt) {
@@ -522,20 +414,6 @@ fn flow_detail_is_none_for_an_expired_flow() {
     assert!(agg.flow_detail(1, at(100)).is_some());
     agg.expire(at(1000));
     assert!(agg.flow_detail(1, at(1000)).is_none());
-}
-
-fn icmp(time: u64) -> Observation {
-    Observation {
-        timestamp: at(time),
-        wire_len: 98,
-        outcome: ParseOutcome::Event(NetEvent::new(
-            "eth0",
-            Direction::Outbound,
-            ip(HOST),
-            ip(PEER),
-            Transport::Icmp(IcmpKind::EchoRequest { seq: 1, id: 2 }),
-        )),
-    }
 }
 
 fn unparsed(reason: UnparsedReason) -> Observation {
