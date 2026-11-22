@@ -49,7 +49,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           # Binary of whichever profile this run built (a cache may hold both).
-          pf=$(ls -t ./target/debug/pf ./target/release/pf 2>/dev/null | head -n1)
+          pf=./target/debug/pf
+          if [ "${GITHUB_REF}" != "${GITHUB_REF#refs/tags/}" ]; then pf=./target/release/pf; fi
           sudo timeout --preserve-status -s INT 4 "$pf" -i lo --no-color > capture.log &
           sleep 1
           ping -c 2 127.0.0.1 > /dev/null
