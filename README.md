@@ -1,21 +1,21 @@
 # Packet Flow
 
-[![License](https://img.shields.io/github/license/rmuraix/packet-flow)](./LICENSE)
-[![Build](https://github.com/rmuraix/packet-flow/actions/workflows/build.yml/badge.svg)](https://github.com/rmuraix/packet-flow/actions/workflows/build.yml)  
+[![License](https://img.shields.io/github/license/rmuraix/pf)](./LICENSE)
+[![Build](https://github.com/rmuraix/pf/actions/workflows/build.yml/badge.svg)](https://github.com/rmuraix/pf/actions/workflows/build.yml)  
 Simple packet capture
 
-![screen shot](./static/packet-flow_screenShot.png)
+![screen shot](./static/pf_screenShot.png)
 
 ## Installation
 
 ```shell
-cargo install --git https://github.com/rmuraix/packet-flow
+cargo install --git https://github.com/rmuraix/pf
 ```
 
 ## Usage
 
 ```shell
-sudo packet-flow -i <NETWORK INTERFACE>
+sudo pf -i <NETWORK INTERFACE>
 ```
 
 ```

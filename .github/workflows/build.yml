@@ -47,15 +47,15 @@ jobs:
         with:
           name: artifact-${{ matrix.os }}
           path: |
-            ./target/*/packet-flow
+            ./target/*/pf
             license.html
       - name: Package
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         run: |
-          tar czvf packet-flow_"$RUNNER_OS"_x64.tgz ./target/release/packet-flow license.html
+          tar czvf pf_"$RUNNER_OS"_x64.tgz ./target/release/pf license.html
       - name: Release
         uses: softprops/action-gh-release@v3
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
           files: |
-            ./packet-flow_*_x64.tgz
+            ./pf_*_x64.tgz

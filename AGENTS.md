@@ -8,10 +8,10 @@
 - `.github/workflows/build.yml`: CI for build/test/release.
 
 ## Build, Test, and Run
-- Build: `cargo build` — debug binary at `target/debug/packet-flow`.
-- Release build: `cargo build --release` — optimized binary at `target/release/packet-flow`.
+- Build: `cargo build` — debug binary at `target/debug/pf`.
+- Release build: `cargo build --release` — optimized binary at `target/release/pf`.
 - Tests: `cargo test` — runs unit tests (e.g., in `direction.rs`).
-- Run locally: `sudo ./target/debug/packet-flow -i <iface>`
+- Run locally: `sudo ./target/debug/pf -i <iface>`
   - Note: `sudo` may be needed for packet capture permissions.
 ## Coding Style & Naming
 - Rust 2021 edition; prefer idiomatic Rust.

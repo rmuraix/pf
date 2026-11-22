@@ -29,13 +29,8 @@ impl Capture {
 
         let (_, rx) = match datalink::channel(&interface, cfg) {
             Ok(Ethernet(tx, rx)) => (tx, rx),
-            Ok(_) => return Err(anyhow::anyhow!("packet-flow: unhandled channel type")),
-            Err(e) => {
-                return Err(anyhow::anyhow!(
-                    "packet-flow: unable to create channel: {}",
-                    e
-                ))
-            }
+            Ok(_) => return Err(anyhow::anyhow!("pf: unhandled channel type")),
+            Err(e) => return Err(anyhow::anyhow!("pf: unable to create channel: {}", e)),
         };
 
         Ok(Self {
@@ -109,10 +104,7 @@ impl Capture {
                 if e.kind() == std::io::ErrorKind::TimedOut {
                     Ok(None)
                 } else {
-                    Err(anyhow::anyhow!(
-                        "packet-flow: unable to receive packet: {}",
-                        e
-                    ))
+                    Err(anyhow::anyhow!("pf: unable to receive packet: {}", e))
                 }
             }
         }
