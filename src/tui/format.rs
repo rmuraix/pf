@@ -45,6 +45,14 @@ pub fn age(d: Duration) -> String {
     }
 }
 
+/// `now` or `5s ago`, for "how long since".
+pub fn ago(d: Duration) -> String {
+    match age(d) {
+        age if age == "now" => age,
+        age => format!("{age} ago"),
+    }
+}
+
 /// Length of a flow: `0.5s`, `12.3s`, `3m 02s`, `2h 03m`.
 pub fn duration(d: Duration) -> String {
     let secs = d.as_secs();
@@ -108,6 +116,12 @@ mod tests {
         assert_eq!(age(Duration::from_secs(185)), "3m05s");
         assert_eq!(age(Duration::from_secs(7380)), "2h03m");
         assert_eq!(age(Duration::from_secs(3 * 86_400)), "3d");
+    }
+
+    #[test]
+    fn ago_reads_naturally() {
+        assert_eq!(ago(Duration::from_millis(10)), "now");
+        assert_eq!(ago(Duration::from_secs(5)), "5s ago");
     }
 
     #[test]

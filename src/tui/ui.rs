@@ -267,7 +267,7 @@ impl FlowColumns {
                 + 2 * 21
                 + 9
                 + 20 * usize::from(c.traffic)
-                + 11 * usize::from(c.packets)
+                + 13 * usize::from(c.packets)
                 + 24 * usize::from(c.rates);
             widths + count - 1
         };
@@ -308,7 +308,7 @@ fn draw_flows(frame: &mut Frame, area: Rect, app: &mut App, theme: &Theme) {
     }
     if columns.packets {
         labels.push("PACKETS ←/→");
-        widths.push(Constraint::Length(11));
+        widths.push(Constraint::Length(13));
     }
     if columns.rates {
         labels.extend(["← RATE", "→ RATE"]);
@@ -354,10 +354,7 @@ fn flow_row<'a>(
         cells.push(Cell::from(format::rate(flow.rate.outbound)).style(theme.outbound));
     }
     let idle = now.duration_since(flow.last_seen).unwrap_or(Duration::ZERO);
-    cells.push(Cell::from(match format::age(idle) {
-        age if age == "now" => age,
-        age => format!("{age} ago"),
-    }));
+    cells.push(Cell::from(format::ago(idle)));
     Row::new(cells)
 }
 
@@ -512,8 +509,8 @@ fn draw_events(frame: &mut Frame, area: Rect, app: &mut App, theme: &Theme) {
         Constraint::Length(12),
         Constraint::Length(8),
         Constraint::Length(9),
-        Constraint::Fill(2),
-        Constraint::Fill(2),
+        Constraint::Max(40),
+        Constraint::Fill(1),
     ];
     if show_len {
         labels.push("SIZE");
@@ -596,11 +593,11 @@ fn summary_lines<'a>(
             format::bytes(flow.total_bytes())
         )),
         Line::from(format!(
-            "Active  {} → {} UTC  ({}, last activity {} ago)",
+            "Active  {} → {} UTC  ({}, last activity {})",
             format::clock(flow.first_seen),
             format::clock(flow.last_seen),
             format::duration(flow.duration()),
-            format::age(idle)
+            format::ago(idle)
         )),
     ]
 }
