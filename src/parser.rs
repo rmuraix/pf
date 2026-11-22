@@ -8,14 +8,15 @@ mod packets;
 
 use std::collections::HashSet;
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use etherparse::err::{Layer, packet::SliceError};
 use etherparse::{EtherType, Ethernet2HeaderSlice, NetSlice, SlicedPacket};
 
 use crate::frame::{CapturedFrame, LinkType};
 use crate::model::{
-    Direction as FlowDir, EthernetSummary, MacAddress, NetEvent, ParseOutcome, Transport,
-    UnparsedFrame, UnparsedReason,
+    Direction as FlowDir, EthernetSummary, MacAddress, NetEvent, Observation, ParseOutcome,
+    Transport, UnparsedFrame, UnparsedReason,
 };
 
 /// Length of the BSD loopback (`DLT_NULL`/`DLT_LOOP`) address-family header.
@@ -154,10 +155,20 @@ impl Parser {
         Self { host_ips, noudp }
     }
 
+    /// [`Self::parse`] plus the capture time and on-wire length, which is
+    /// all the aggregator needs from the frame.
+    pub fn observe(&self, frame: &CapturedFrame) -> Observation {
+        Observation {
+            timestamp: frame.timestamp,
+            wire_len: frame.original_len,
+            outcome: self.parse(frame),
+        }
+    }
+
     pub fn parse(&self, frame: &CapturedFrame) -> ParseOutcome {
         let unparsed = |ethernet, reason| {
             ParseOutcome::Unparsed(UnparsedFrame {
-                interface: frame.interface.to_string(),
+                interface: Arc::clone(&frame.interface),
                 length: frame.captured_len(),
                 ethernet,
                 reason,
@@ -173,7 +184,11 @@ impl Parser {
         }
     }
 
-    fn parse_network(&self, interface: &str, link: &LinkFrame) -> Result<NetEvent, UnparsedReason> {
+    fn parse_network(
+        &self,
+        interface: &Arc<str>,
+        link: &LinkFrame,
+    ) -> Result<NetEvent, UnparsedReason> {
         let sliced = SlicedPacket::from_ether_type(EtherType(link.summary.ethertype), link.payload)
             .map_err(malformed)?;
         let (source, destination, transport) = match &sliced.net {
@@ -222,7 +237,7 @@ impl Parser {
             FlowDir::Outbound
         };
         Ok(NetEvent::new(
-            interface,
+            Arc::clone(interface),
             direction,
             source,
             destination,
@@ -246,7 +261,7 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::IcmpKind;
+    use crate::model::{IcmpKind, TcpFlags};
     use std::net::{Ipv4Addr, Ipv6Addr};
     use std::sync::Arc;
     use std::time::SystemTime;
@@ -399,7 +414,7 @@ mod tests {
                 is_dns: true
             }
         );
-        assert_eq!(ev.interface, "eth0");
+        assert_eq!(&*ev.interface, "eth0");
         assert_eq!(ev.direction, FlowDir::Inbound);
         assert_eq!(ev.source, IpAddr::V4(Ipv4Addr::from(PEER)));
         assert_eq!(ev.destination, IpAddr::V4(Ipv4Addr::from(HOST)));
@@ -426,9 +441,65 @@ mod tests {
             Transport::Tcp {
                 src_port: 55555,
                 dst_port: 80,
-                length: 25
+                length: 25,
+                flags: TcpFlags {
+                    syn: true,
+                    ..TcpFlags::default()
+                }
             }
         );
+    }
+
+    #[test]
+    fn tcp_flags_are_decoded() {
+        // 20-byte header; flags byte: FIN=0x01 SYN=0x02 RST=0x04 ACK=0x10.
+        let with_flags = |flags: u8| {
+            let mut seg = tcp(1, 2, 0);
+            seg[13] = flags;
+            let f = eth_frame(IPV4, &ipv4(TCP, &seg));
+            match event(parser(false).parse(&f)).transport {
+                Transport::Tcp { flags, .. } => flags,
+                other => panic!("not TCP: {other:?}"),
+            }
+        };
+        assert_eq!(
+            with_flags(0x12),
+            TcpFlags {
+                syn: true,
+                ack: true,
+                fin: false,
+                rst: false
+            }
+        );
+        assert_eq!(
+            with_flags(0x11),
+            TcpFlags {
+                syn: false,
+                ack: true,
+                fin: true,
+                rst: false
+            }
+        );
+        assert_eq!(
+            with_flags(0x04),
+            TcpFlags {
+                syn: false,
+                ack: false,
+                fin: false,
+                rst: true
+            }
+        );
+    }
+
+    #[test]
+    fn observe_carries_timestamp_and_wire_len() {
+        let mut f = eth_frame(IPV4, &ipv4(TCP, &tcp(1, 2, 0)));
+        f.original_len = 9000;
+        f.timestamp = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(7);
+        let obs = parser(false).observe(&f);
+        assert_eq!(obs.wire_len, 9000);
+        assert_eq!(obs.timestamp, f.timestamp);
+        assert!(matches!(obs.outcome, ParseOutcome::Event(_)));
     }
 
     #[test]
@@ -440,7 +511,11 @@ mod tests {
             Transport::Tcp {
                 src_port: 50000,
                 dst_port: 443,
-                length: 20
+                length: 20,
+                flags: TcpFlags {
+                    syn: true,
+                    ..TcpFlags::default()
+                }
             }
         );
         assert_eq!(ev.direction, FlowDir::Outbound);

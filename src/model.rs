@@ -1,6 +1,8 @@
 use std::fmt;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
+use std::sync::Arc;
+use std::time::SystemTime;
 
 /// Hardware address, displayed as lowercase colon-separated hex.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +28,15 @@ pub enum IcmpKind {
     Other(u8),
 }
 
+/// TCP control flags relevant to telling connections apart.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TcpFlags {
+    pub syn: bool,
+    pub ack: bool,
+    pub fin: bool,
+    pub rst: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Transport {
     Udp {
@@ -38,6 +49,7 @@ pub enum Transport {
         src_port: u16,
         dst_port: u16,
         length: usize,
+        flags: TcpFlags,
     },
     Icmp(IcmpKind),
     Icmpv6 {
@@ -54,7 +66,7 @@ pub enum Transport {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NetEvent {
-    pub interface: String,
+    pub interface: Arc<str>,
     pub direction: Direction,
     pub source: IpAddr,
     pub destination: IpAddr,
@@ -63,7 +75,7 @@ pub struct NetEvent {
 
 impl NetEvent {
     pub fn new(
-        interface: impl Into<String>,
+        interface: impl Into<Arc<str>>,
         direction: Direction,
         source: IpAddr,
         destination: IpAddr,
@@ -100,14 +112,13 @@ pub enum UnparsedReason {
     Malformed(&'static str),
     /// IPv4/IPv6 fragment: the transport header is not reliably available.
     Fragmented,
-    /// Dropped by the `--noudp` option. (Reported like any other unparsed
-    /// frame to keep the pre-refactor output.)
+    /// Dropped by the `--noudp` option.
     Filtered,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnparsedFrame {
-    pub interface: String,
+    pub interface: Arc<str>,
     /// Number of captured bytes.
     pub length: usize,
     /// `None` when not even a link-layer header could be read.
@@ -120,4 +131,15 @@ pub struct UnparsedFrame {
 pub enum ParseOutcome {
     Event(NetEvent),
     Unparsed(UnparsedFrame),
+}
+
+/// A parsed frame together with the capture metadata that [`ParseOutcome`]
+/// does not carry. This is what the aggregator consumes; the frame bytes are
+/// gone by this point.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Observation {
+    pub timestamp: SystemTime,
+    /// Length of the frame on the wire (`CapturedFrame::original_len`).
+    pub wire_len: usize,
+    pub outcome: ParseOutcome,
 }
