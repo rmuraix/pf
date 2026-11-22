@@ -55,6 +55,7 @@ pub fn render_line(e: &NetEvent) -> String {
             src_port,
             dst_port,
             length,
+            ..
         } => match e.direction {
             Direction::Inbound => format!(
                 "[{}]: {}:{} {}<==== [TCP] ====={} {}:{}; length: {}",
@@ -266,6 +267,7 @@ mod tests {
                 src_port: 50123,
                 dst_port: 443,
                 length: 1200,
+                flags: Default::default(),
             },
         );
         let line = render_line(&e);

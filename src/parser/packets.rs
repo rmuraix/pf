@@ -4,7 +4,7 @@ use std::net::Ipv4Addr;
 
 use etherparse::{ArpPacketSlice, EtherType, Icmpv4Type, TransportSlice};
 
-use crate::model::{IcmpKind, Transport};
+use crate::model::{IcmpKind, TcpFlags, Transport};
 
 /// TCP, UDP, ICMP or ICMPv6 as a [`Transport`]; `None` for anything else
 /// (e.g. IGMP).
@@ -24,6 +24,12 @@ pub(crate) fn transport(slice: &TransportSlice) -> Option<Transport> {
             dst_port: tcp.destination_port(),
             // Header plus payload, as before the etherparse migration.
             length: tcp.slice().len(),
+            flags: TcpFlags {
+                syn: tcp.syn(),
+                ack: tcp.ack(),
+                fin: tcp.fin(),
+                rst: tcp.rst(),
+            },
         },
         TransportSlice::Icmpv4(icmp) => Transport::Icmp(match icmp.icmp_type() {
             Icmpv4Type::EchoReply(e) => IcmpKind::EchoReply {

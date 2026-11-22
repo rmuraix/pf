@@ -1,7 +1,10 @@
-//! Pipeline: `capture` → `CapturedFrame` → `parser` → `NetEvent` → `render`.
+//! Pipeline: `capture` → `CapturedFrame` → `parser` → `Observation` →
+//! `aggregate` (flows, event log) and `render`.
 //! Only `capture` uses `pcap` types and only `parser` uses `etherparse` types.
 
+pub mod aggregate;
 pub mod capture;
+pub mod flow;
 pub mod frame;
 pub mod model;
 pub mod parser;
