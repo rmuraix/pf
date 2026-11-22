@@ -140,6 +140,16 @@ impl Shared {
         *lock(&self.status) = status;
     }
 
+    /// Like [`Self::set_status`], but keeps an earlier failure: when the
+    /// processing thread panics, capture then fails too, and its generic
+    /// "processing thread terminated" must not hide the actual cause.
+    fn set_status_unless_failed(&self, status: CaptureStatus) {
+        let mut current = lock(&self.status);
+        if !matches!(*current, CaptureStatus::Failed(_)) {
+            *current = status;
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn set_dropped(&self, kernel: u64, interface: u64) {
         self.kernel_dropped.store(kernel, Ordering::Relaxed);
@@ -295,7 +305,7 @@ fn capture_loop(cap: &mut Capture, tx: &SyncSender<CapturedFrame>, shared: &Shar
             }
         }
     };
-    shared.set_status(match result {
+    shared.set_status_unless_failed(match result {
         Ok(()) => CaptureStatus::Stopped,
         Err(err) => CaptureStatus::Failed(format!("{err:#}")),
     });
@@ -414,6 +424,22 @@ mod tests {
             shared.capture_info().status,
             CaptureStatus::Failed("internal error: boom".into())
         );
+    }
+
+    #[test]
+    fn a_later_capture_error_does_not_hide_the_first_failure() {
+        let shared = Shared::new("eth0", Limits::default());
+        guarded(&shared, || panic!("boom"));
+        shared
+            .set_status_unless_failed(CaptureStatus::Failed("processing thread terminated".into()));
+        assert_eq!(
+            shared.capture_info().status,
+            CaptureStatus::Failed("internal error: boom".into())
+        );
+
+        let fresh = Shared::new("eth0", Limits::default());
+        fresh.set_status_unless_failed(CaptureStatus::Stopped);
+        assert_eq!(fresh.capture_info().status, CaptureStatus::Stopped);
     }
 
     #[test]

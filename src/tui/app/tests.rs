@@ -407,3 +407,18 @@ fn event_selection_follows_the_entry_as_new_events_arrive() {
     assert_eq!(index, 2);
     assert_eq!(app.data.snapshot.events[app.event_rows[index]].seq, 1);
 }
+
+#[test]
+fn details_are_only_refreshed_while_the_details_view_is_open() {
+    let (shared, mut app) = app_with_flows();
+    press(&mut app, KeyCode::Enter);
+    let id = app.take_detail_request().unwrap();
+    app.set_detail(id, shared.flow_detail(id));
+
+    app.apply(shared.live());
+    assert_eq!(app.take_detail_request(), Some(id));
+
+    press(&mut app, KeyCode::Esc);
+    app.apply(shared.live());
+    assert_eq!(app.take_detail_request(), None);
+}

@@ -7,6 +7,10 @@ Starts pf on a pty, generates ICMP traffic on loopback, opens the Events
 view, then stops pf with `q` or SIGINT and checks that it exits with status 0
 and leaves the terminal as it found it (cooked mode, main screen, cursor
 shown).
+
+Run the whole script as root (`sudo python3 tui-smoke.py ...`) and pass pf
+itself as the command: with `sudo` inside the pty, sudo would sit between this
+script and pf and the checks would measure sudo instead.
 """
 import fcntl
 import os
@@ -61,10 +65,14 @@ def main() -> int:
     subprocess.run(["ping", "-c", "3", "-i", "0.2", "127.0.0.1"],
                    stdout=subprocess.DEVNULL, check=True)
     pump(1.0)
-    os.write(master, b"\t")  # Flows -> Events
-    pump(5, until=b"ICMP")
-    if b"ICMP" not in output:
-        return fail("no ICMP event shown in the Events view")
+    # Shift+Tab goes from Flows straight to Events; Tab would land in Details
+    # if loopback happens to carry a TCP/UDP flow (e.g. a local DNS stub).
+    os.write(master, b"\x1b[Z")
+    # The empty Events view only says "no ICMP, ARP ..."; an echo row is
+    # proof that capture, parsing and aggregation worked.
+    pump(5, until=b"echo")
+    if b"echo" not in output:
+        return fail("no ICMP echo event shown in the Events view")
 
     if mode == "quit":
         os.write(master, b"q")

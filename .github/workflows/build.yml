@@ -65,7 +65,7 @@ jobs:
           pf=./target/debug/pf
           if [ "${GITHUB_REF}" != "${GITHUB_REF#refs/tags/}" ]; then pf=./target/release/pf; fi
           for mode in quit sigint; do
-            python3 .github/scripts/tui-smoke.py "$mode" -- sudo "$pf" -i lo
+            sudo python3 .github/scripts/tui-smoke.py "$mode" -- "$pf" -i lo
           done
       - name: Generate license.html
         if: ${{ startsWith(github.ref, 'refs/tags/') }}

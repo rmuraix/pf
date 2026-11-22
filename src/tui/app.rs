@@ -170,8 +170,10 @@ impl App {
         }
         self.data = data;
         self.rebuild_rows();
-        if let Some(state) = &self.detail {
-            self.detail_request = Some(state.detail.summary.id);
+        if self.view == View::Detail {
+            if let Some(state) = &self.detail {
+                self.detail_request = Some(state.detail.summary.id);
+            }
         }
     }
 
