@@ -17,13 +17,13 @@ struct Cli {
 
 fn main() -> ExitCode {
     let cli: Cli = Cli::parse();
-    let config = packet_flow::Config {
+    let config = pf::Config {
         interface: cli.interface,
         noudp: cli.noudp,
         no_color: cli.no_color,
     };
-    if let Err(err) = packet_flow::run(config) {
-        eprintln!("packet-flow error: {:#}", err);
+    if let Err(err) = pf::run(config) {
+        eprintln!("pf error: {:#}", err);
         return ExitCode::from(1);
     }
     // run() currently never returns; OK for future extensibility.
