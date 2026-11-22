@@ -2,9 +2,16 @@
 
 [![License](https://img.shields.io/github/license/rmuraix/pf)](./LICENSE)
 [![Build](https://github.com/rmuraix/pf/actions/workflows/build.yml/badge.svg)](https://github.com/rmuraix/pf/actions/workflows/build.yml)  
-Simple packet capture
+A lightweight, interactive network monitor for the terminal.
 
-![screen shot](./static/pf_screenShot.png)
+![Flows view](./static/pf_flows.png)
+
+<img src="./static/pf_details.png" alt="Details view" width="49%"> <img src="./static/pf_events.png" alt="Events view" width="49%">
+
+`pf` groups TCP/UDP traffic on one interface into bidirectional **flows** with
+live bytes, packets and rates per direction. Views: **Flows** (the list),
+**Details** (one flow and its recent packets) and **Events** (ICMP, ARP and
+frames that could not be parsed).
 
 ## Installation
 
@@ -18,14 +25,49 @@ cargo install --git https://github.com/rmuraix/pf
 sudo pf -i <NETWORK INTERFACE>
 ```
 
+`pf` needs an interactive terminal and exits with an error if stdin or stdout is
+redirected.
+
 ```
 Options:
   -i, --interface <NETWORK INTERFACE>  Name of the network interface
-      --noudp                          Do not display UDP
-      --no-color                       Disable ANSI colors in output (or set NO_COLOR)
-  -h, --help                           Print help
-  -V, --version                        Print version
+      --noudp                          Ignore UDP: no UDP flows, and UDP packets are not counted
+      --no-color                       Use a monochrome theme (or set NO_COLOR)
 ```
+
+### Keys
+
+| Key | Action |
+| --- | --- |
+| `↑` `↓` / `k` `j` | Move (scroll history in Details) |
+| `Enter` / `Esc` | Open the selected flow / go back (also clears the filter) |
+| `Tab` / `Shift+Tab` | Switch view |
+| `/` | Filter; `Enter` keeps it, `Esc` clears it |
+| `s` | Sort by recent activity or traffic volume |
+| `Space` | Pause / resume the display (capture keeps counting) |
+| `q`, `Ctrl+C` | Quit |
+
+### Filter
+
+Space-separated terms, all must match: a protocol (`tcp`, `udp`, `icmp`,
+`icmpv6`, `arp`), a port (`443`, `:443`), an IP address (`10.0.0.2`), an
+endpoint (`10.0.0.2:443`) or part of an address (`192.168`).
+Example: `tcp 443 192.168`.
+
+## How it works
+
+`Capture → Parser → Aggregator → TUI` on separate threads, so a slow terminal
+never slows capture.
+
+* A flow is identified by interface, protocol and the two `(IP, port)` endpoints,
+  in either direction. Volume is the on-wire frame length.
+* A flow expires after 60 s without packets, or 5 s after a TCP close; a later
+  packet (or a new SYN on a closed connection) starts a new flow.
+* Storage is bounded: 4096 flows, 64 packets per flow, 1000 events. Evictions
+  (`evicted: …` in the status bar) never change the totals, and are distinct
+  from `packets lost`, which counts packets the kernel dropped.
+* Local/remote: the host address if known, otherwise (e.g. loopback) the sender
+  of the first packet.
 
 ## Requirements
 
@@ -57,10 +99,10 @@ with any other type (e.g. 802.11 monitor mode, PPP) is rejected with an error.
 
 ### Notes
 
-* Timestamps and lengths come from libpcap; frames are captured in full
-  (snapshot length 65535).
-* IP fragments are reported as unknown frames: the transport header is not
-  reliably available.
+* Live capture and the TUI are exercised in CI on Linux only; macOS is built and
+  unit-tested, Windows is compile-checked (the runner has no Npcap).
+* `Ctrl+C`, `SIGINT`, `SIGTERM` and `SIGHUP` restore the terminal. After
+  `SIGKILL`, run `reset`.
 
 ## Contributing
 
