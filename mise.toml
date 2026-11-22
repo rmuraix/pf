@@ -1,0 +1,34 @@
+[tools]
+rust = { version = "stable", components = "rustfmt,clippy" }
+
+[tasks.build]
+description = "Build (debug)"
+run = "cargo build"
+
+[tasks."build:release"]
+description = "Build (release)"
+run = "cargo build --release"
+
+[tasks.test]
+description = "Run unit tests"
+run = "cargo test"
+
+[tasks.fmt]
+description = "Format code"
+run = "cargo fmt --all"
+
+[tasks."fmt:check"]
+description = "Check formatting"
+run = "cargo fmt --all -- --check"
+
+[tasks.clippy]
+description = "Lint with clippy (deny warnings)"
+run = "cargo clippy --all-targets -- -D warnings"
+
+[tasks.check]
+description = "Format check, lint and test"
+depends = ["fmt:check", "clippy", "test"]
+
+[tasks.run]
+description = "Run pf (e.g. mise run run -- -i <iface>); may need sudo"
+run = "cargo run --"

@@ -79,72 +79,74 @@ pub fn render_line(e: &NetEvent) -> String {
                 length
             ),
         },
-        Transport::Icmp(kind) => {
-            match kind {
-                IcmpKind::EchoReply { seq, id } => {
-                    match e.direction {
-                        Direction::Inbound => format!(
-                            "[{}]: {} {}<==== [ICMP echo reply] ====={} {} (seq={:?}, id={:?})",
-                            e.interface,
-                            e.destination,
-                            col("\x1b[35m"),
-                            col("\x1b[0m"),
-                            e.source,
-                            seq,
-                            id
-                        ),
-                        Direction::Outbound => {
-                            format!(
-                    "[{}]: {} {}===== [ICMP echo reply] =====>{} {} (seq={:?}, id={:?})",
-                    e.interface, e.source, col("\x1b[35m"), col("\x1b[0m"), e.destination, seq, id
-                )
-                        }
-                    }
+        Transport::Icmp(kind) => match kind {
+            IcmpKind::EchoReply { seq, id } => match e.direction {
+                Direction::Inbound => format!(
+                    "[{}]: {} {}<==== [ICMP echo reply] ====={} {} (seq={:?}, id={:?})",
+                    e.interface,
+                    e.destination,
+                    col("\x1b[35m"),
+                    col("\x1b[0m"),
+                    e.source,
+                    seq,
+                    id
+                ),
+                Direction::Outbound => {
+                    format!(
+                        "[{}]: {} {}===== [ICMP echo reply] =====>{} {} (seq={:?}, id={:?})",
+                        e.interface,
+                        e.source,
+                        col("\x1b[35m"),
+                        col("\x1b[0m"),
+                        e.destination,
+                        seq,
+                        id
+                    )
                 }
-                IcmpKind::EchoRequest { seq, id } => match e.direction {
-                    Direction::Inbound => format!(
-                        "[{}]: {} {}<==== [ICMP echo] ====={} {} (seq={:?}, id={:?})",
-                        e.interface,
-                        e.destination,
-                        col("\x1b[35m"),
-                        col("\x1b[0m"),
-                        e.source,
-                        seq,
-                        id
-                    ),
-                    Direction::Outbound => format!(
-                        "[{}]: {} {}===== [ICMP echo] =====>{} {} (seq={:?}, id={:?})",
-                        e.interface,
-                        e.source,
-                        col("\x1b[35m"),
-                        col("\x1b[0m"),
-                        e.destination,
-                        seq,
-                        id
-                    ),
-                },
-                IcmpKind::Other(t) => match e.direction {
-                    Direction::Inbound => format!(
-                        "[{}]: {} {}<==== [ICMP] ====={} {} (type={:?})",
-                        e.interface,
-                        e.destination,
-                        col("\x1b[35m"),
-                        col("\x1b[0m"),
-                        e.source,
-                        t
-                    ),
-                    Direction::Outbound => format!(
-                        "[{}]: {} {}===== [ICMP] =====>{} {} (type={:?})",
-                        e.interface,
-                        e.source,
-                        col("\x1b[35m"),
-                        col("\x1b[0m"),
-                        e.destination,
-                        t
-                    ),
-                },
-            }
-        }
+            },
+            IcmpKind::EchoRequest { seq, id } => match e.direction {
+                Direction::Inbound => format!(
+                    "[{}]: {} {}<==== [ICMP echo] ====={} {} (seq={:?}, id={:?})",
+                    e.interface,
+                    e.destination,
+                    col("\x1b[35m"),
+                    col("\x1b[0m"),
+                    e.source,
+                    seq,
+                    id
+                ),
+                Direction::Outbound => format!(
+                    "[{}]: {} {}===== [ICMP echo] =====>{} {} (seq={:?}, id={:?})",
+                    e.interface,
+                    e.source,
+                    col("\x1b[35m"),
+                    col("\x1b[0m"),
+                    e.destination,
+                    seq,
+                    id
+                ),
+            },
+            IcmpKind::Other(t) => match e.direction {
+                Direction::Inbound => format!(
+                    "[{}]: {} {}<==== [ICMP] ====={} {} (type={:?})",
+                    e.interface,
+                    e.destination,
+                    col("\x1b[35m"),
+                    col("\x1b[0m"),
+                    e.source,
+                    t
+                ),
+                Direction::Outbound => format!(
+                    "[{}]: {} {}===== [ICMP] =====>{} {} (type={:?})",
+                    e.interface,
+                    e.source,
+                    col("\x1b[35m"),
+                    col("\x1b[0m"),
+                    e.destination,
+                    t
+                ),
+            },
+        },
         Transport::Icmpv6 { type_u8 } => match e.direction {
             Direction::Inbound => format!(
                 "[{}]: {} {}<==== [ICMPv6] ====={} {} (type={:?})",
@@ -286,6 +288,9 @@ mod tests {
             },
         );
         let line = render_line(&e);
-        assert_eq!(line, "[eth0]: 00:01:02:03:04:05(10.0.0.2) ===== [ARP] =====> 00:00:00:00:00:00(10.0.0.1); operation: 1");
+        assert_eq!(
+            line,
+            "[eth0]: 00:01:02:03:04:05(10.0.0.2) ===== [ARP] =====> 00:00:00:00:00:00(10.0.0.1); operation: 1"
+        );
     }
 }

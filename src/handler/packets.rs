@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use pnet::packet::{
-    icmp::{echo_reply, echo_request, IcmpPacket, IcmpTypes},
+    icmp::{IcmpPacket, IcmpTypes, echo_reply, echo_request},
     icmpv6::Icmpv6Packet,
     tcp::TcpPacket,
     udp::UdpPacket,
