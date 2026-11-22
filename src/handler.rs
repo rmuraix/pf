@@ -5,12 +5,12 @@ extern crate pnet;
 
 use pnet::datalink::NetworkInterface;
 
+use pnet::packet::Packet;
 use pnet::packet::arp::ArpPacket;
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
 use pnet::packet::ip::{IpNextHeaderProtocol, IpNextHeaderProtocols};
 use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::ipv6::Ipv6Packet;
-use pnet::packet::Packet;
 
 use crate::handler::packets::{
     build_icmp_event, build_icmpv6_event, build_tcp_event, build_udp_event,
@@ -186,13 +186,13 @@ pub fn handle_ethernet_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pnet::packet::MutablePacket;
     use pnet::packet::arp::{ArpHardwareTypes, ArpOperations, MutableArpPacket};
     use pnet::packet::ethernet::MutableEthernetPacket;
     use pnet::packet::ipv4::MutableIpv4Packet;
     use pnet::packet::ipv6::MutableIpv6Packet;
     use pnet::packet::tcp::MutableTcpPacket;
     use pnet::packet::udp::MutableUdpPacket;
-    use pnet::packet::MutablePacket;
     use pnet::util::MacAddr;
 
     fn ips_set() -> HashSet<IpAddr> {
