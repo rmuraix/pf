@@ -19,6 +19,9 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+      - name: Install libpcap (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
       - uses: jdx/mise-action@v5.3.0
       - name: Cache
         uses: actions/cache@v6.1.0
@@ -40,6 +43,17 @@ jobs:
         run: mise run build:release
       - name: test
         run: mise run test
+      - name: Capture smoke test (Linux)
+        # Live capture on the loopback interface: start-up, event parsing and
+        # a clean Ctrl-C shutdown (exit status 0). Needs root for raw capture.
+        if: runner.os == 'Linux'
+        run: |
+          sudo timeout --preserve-status -s INT 4 ./target/*/pf -i lo --no-color > capture.log &
+          sleep 1
+          ping -c 2 127.0.0.1 > /dev/null
+          wait %1
+          cat capture.log
+          grep -q "ICMP echo" capture.log
       - name: Generate license.html
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         run: |
@@ -65,3 +79,39 @@ jobs:
           asset=(pf_"$RUNNER_OS"_"$RUNNER_ARCH".tgz)
           gh release create "$GITHUB_REF_NAME" "${asset[@]}" --repo "$GITHUB_REPOSITORY" --generate-notes \
             || gh release upload "$GITHUB_REF_NAME" "${asset[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+
+  # Windows is compile/link-checked only: packet capture needs the Npcap driver
+  # (wpcap.dll), which is not installed on the runner, so no test binary or
+  # capture can be executed there. See README "Requirements".
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      NPCAP_SDK_VERSION: "1.17"
+      NPCAP_SDK_SHA256: ab7e1a6cb8d07427e0071ec11be380bd9d2bb19ae6ab3f5ede0698c301638258
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Npcap SDK (import libraries for linking)
+        run: |
+          curl -fsSL -o npcap-sdk.zip "https://npcap.com/dist/npcap-sdk-${NPCAP_SDK_VERSION}.zip"
+          echo "${NPCAP_SDK_SHA256}  npcap-sdk.zip" | sha256sum -c -
+          7z x npcap-sdk.zip -o"$RUNNER_TEMP/npcap-sdk" > /dev/null
+          echo "LIB=$(cygpath -w "$RUNNER_TEMP/npcap-sdk/Lib/x64");${LIB}" >> "$GITHUB_ENV"
+      - name: Cache
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Build
+        run: cargo build
+      - name: "Build tests (not run, wpcap.dll is unavailable)"
+        run: cargo test --no-run
