@@ -479,8 +479,8 @@ fn color_theme_does_use_colours() {
     let shared = populated();
     let mut app = App::new(shared.live());
     let buffer = render(&mut app, &Theme::color(), 140, 10);
-    assert!(buffer.content.iter().any(|c| c.fg == Color::Green));
-    assert!(buffer.content.iter().any(|c| c.fg == Color::Magenta));
+    assert!(buffer.content.iter().any(|c| c.fg == Color::LightGreen));
+    assert!(buffer.content.iter().any(|c| c.fg == Color::LightMagenta));
 }
 
 #[test]

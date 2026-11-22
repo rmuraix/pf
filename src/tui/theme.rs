@@ -16,15 +16,15 @@ pub struct Theme {
 }
 
 impl Theme {
-    /// Colours that stay readable on both dark and light terminals: green
-    /// and magenta rather than cyan/yellow (washed out on white), nothing
-    /// grey (invisible on some dark themes), and reverse video instead of a
-    /// fixed foreground/background pair for the active tab.
+    /// Neon green and pink for the two directions. Nothing grey (invisible on
+    /// some dark themes) and no fixed white or black text (invisible on the
+    /// opposite background): headers and the active tab use bold, underline
+    /// and reverse video instead.
     pub fn color() -> Self {
         let bold = Modifier::BOLD;
         Self {
-            inbound: Style::new().fg(Color::Green),
-            outbound: Style::new().fg(Color::Magenta),
+            inbound: Style::new().fg(Color::LightGreen),
+            outbound: Style::new().fg(Color::LightMagenta),
             selected: Style::new().add_modifier(Modifier::REVERSED | bold),
             header: Style::new().add_modifier(bold | Modifier::UNDERLINED),
             tab_active: Style::new().add_modifier(Modifier::REVERSED | bold),
