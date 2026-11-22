@@ -1,6 +1,17 @@
-use pnet::util::MacAddr;
+use std::fmt;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
+
+/// Hardware address, displayed as lowercase colon-separated hex.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MacAddress(pub [u8; 6]);
+
+impl fmt::Display for MacAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let [a, b, c, d, e, g] = self.0;
+        write!(f, "{a:02x}:{b:02x}:{c:02x}:{d:02x}:{e:02x}:{g:02x}")
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -34,9 +45,9 @@ pub enum Transport {
     },
     Arp {
         operation: u16,
-        sender_mac: MacAddr,
+        sender_mac: MacAddress,
         sender_ip: Ipv4Addr,
-        target_mac: MacAddr,
+        target_mac: MacAddress,
         target_ip: Ipv4Addr,
     },
 }
@@ -66,4 +77,43 @@ impl NetEvent {
             transport,
         }
     }
+}
+
+/// Ethernet header fields of a frame that could not be turned into a [`NetEvent`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EthernetSummary {
+    pub source: MacAddress,
+    pub destination: MacAddress,
+    pub ethertype: u16,
+}
+
+/// Why a frame produced no [`NetEvent`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnparsedReason {
+    /// EtherType is not IPv4, IPv6 or ARP.
+    UnsupportedEtherType,
+    /// IP protocol is not TCP, UDP, ICMP (IPv4) or ICMPv6 (IPv6).
+    UnsupportedProtocol,
+    /// A header of the named protocol is too short or invalid.
+    Malformed(&'static str),
+    /// Dropped by the `--noudp` option. (Reported like any other unparsed
+    /// frame to keep the pre-refactor output.)
+    Filtered,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnparsedFrame {
+    pub interface: String,
+    /// Number of captured bytes.
+    pub length: usize,
+    /// `None` when not even an Ethernet header could be read.
+    pub ethernet: Option<EthernetSummary>,
+    pub reason: UnparsedReason,
+}
+
+/// Result of parsing one captured frame.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseOutcome {
+    Event(NetEvent),
+    Unparsed(UnparsedFrame),
 }

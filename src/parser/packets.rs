@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::net::IpAddr;
-use std::sync::Arc;
 
 use pnet::packet::{
     icmp::{IcmpPacket, IcmpTypes, echo_reply, echo_request},
@@ -9,9 +8,8 @@ use pnet::packet::{
     udp::UdpPacket,
 };
 
-use crate::handler::direction;
 use crate::model::{Direction as FlowDir, IcmpKind, NetEvent, Transport};
-use crate::render;
+use crate::parser::direction;
 
 pub(crate) fn build_udp_event(
     interface_name: &str,
@@ -42,20 +40,6 @@ pub(crate) fn build_udp_event(
     ))
 }
 
-pub fn handle_udp_packet(
-    interface_name: &str,
-    source: IpAddr,
-    destination: IpAddr,
-    packet: &[u8],
-    ips: Arc<HashSet<IpAddr>>,
-) {
-    if let Some(ev) = build_udp_event(interface_name, source, destination, packet, &ips) {
-        render::print_event(&ev);
-    } else {
-        println!("[{}]: Malformed UDP Packet", interface_name);
-    }
-}
-
 pub(crate) fn build_tcp_event(
     interface_name: &str,
     source: IpAddr,
@@ -82,20 +66,6 @@ pub(crate) fn build_tcp_event(
     ))
 }
 
-pub fn handle_tcp_packet(
-    interface_name: &str,
-    source: IpAddr,
-    destination: IpAddr,
-    packet: &[u8],
-    ips: Arc<HashSet<IpAddr>>,
-) {
-    if let Some(ev) = build_tcp_event(interface_name, source, destination, packet, &ips) {
-        render::print_event(&ev);
-    } else {
-        println!("[{}]: Malformed TCP Packet", interface_name);
-    }
-}
-
 pub(crate) fn build_icmp_event(
     interface_name: &str,
     source: IpAddr,
@@ -111,14 +81,14 @@ pub(crate) fn build_icmp_event(
     };
     let kind = match icmp_packet.get_icmp_type() {
         IcmpTypes::EchoReply => {
-            let p = echo_reply::EchoReplyPacket::new(packet).unwrap();
+            let p = echo_reply::EchoReplyPacket::new(packet)?;
             IcmpKind::EchoReply {
                 seq: p.get_sequence_number(),
                 id: p.get_identifier(),
             }
         }
         IcmpTypes::EchoRequest => {
-            let p = echo_request::EchoRequestPacket::new(packet).unwrap();
+            let p = echo_request::EchoRequestPacket::new(packet)?;
             IcmpKind::EchoRequest {
                 seq: p.get_sequence_number(),
                 id: p.get_identifier(),
@@ -133,20 +103,6 @@ pub(crate) fn build_icmp_event(
         destination,
         Transport::Icmp(kind),
     ))
-}
-
-pub fn handle_icmp_packet(
-    interface_name: &str,
-    source: IpAddr,
-    destination: IpAddr,
-    packet: &[u8],
-    ips: Arc<HashSet<IpAddr>>,
-) {
-    if let Some(ev) = build_icmp_event(interface_name, source, destination, packet, &ips) {
-        render::print_event(&ev);
-    } else {
-        println!("[{}]: Malformed ICMP Packet", interface_name);
-    }
 }
 
 pub(crate) fn build_icmpv6_event(
@@ -171,20 +127,6 @@ pub(crate) fn build_icmpv6_event(
             type_u8: icmpv6_packet.get_icmpv6_type().0,
         },
     ))
-}
-
-pub fn handle_icmpv6_packet(
-    interface_name: &str,
-    source: IpAddr,
-    destination: IpAddr,
-    packet: &[u8],
-    ips: Arc<HashSet<IpAddr>>,
-) {
-    if let Some(ev) = build_icmpv6_event(interface_name, source, destination, packet, &ips) {
-        render::print_event(&ev);
-    } else {
-        println!("[{}]: Malformed ICMPv6 Packet", interface_name);
-    }
 }
 
 #[cfg(test)]

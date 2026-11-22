@@ -1,23 +1,58 @@
+//! `pnet::datalink` capture backend. Yields owned [`CapturedFrame`]s; see
+//! [`crate::frame`] for what metadata is (not) available.
+
 use std::net::IpAddr;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use pnet::datalink::{
     self, Channel::Ethernet, Config as DlConfig, DataLinkReceiver, NetworkInterface,
 };
-use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::util::MacAddr;
-use std::time::Duration;
+
+use crate::frame::{CapturedFrame, LinkType};
 
 pub struct Capture {
-    interface: NetworkInterface,
+    name: Arc<str>,
+    link_type: LinkType,
     rx: Box<dyn DataLinkReceiver>,
-    buf: [u8; 1600],
+}
+
+/// Link type of the frames pnet delivers for an interface.
+///
+/// On macOS/iOS pnet's BPF backend does not deliver Ethernet frames for
+/// loopback (zeroed 14-byte placeholder header + IP) and for point-to-point
+/// (TUN) interfaces (bare IP). Everywhere else frames are Ethernet.
+fn link_type(interface: &NetworkInterface) -> LinkType {
+    link_type_for(
+        cfg!(any(target_os = "macos", target_os = "ios")),
+        interface.is_up(),
+        interface.is_broadcast(),
+        interface.is_loopback(),
+        interface.is_point_to_point(),
+    )
+}
+
+fn link_type_for(
+    bsd: bool,
+    up: bool,
+    broadcast: bool,
+    loopback: bool,
+    point_to_point: bool,
+) -> LinkType {
+    if !(bsd && up && !broadcast) {
+        LinkType::Ethernet
+    } else if loopback {
+        LinkType::Loopback
+    } else if point_to_point {
+        LinkType::RawIp
+    } else {
+        LinkType::Ethernet
+    }
 }
 
 impl Capture {
     pub fn open(iface_name: &str) -> anyhow::Result<Self> {
-        let interfaces: Vec<NetworkInterface> = datalink::interfaces();
-        let interface: NetworkInterface = interfaces
+        let interface: NetworkInterface = datalink::interfaces()
             .into_iter()
             .find(|iface: &NetworkInterface| iface.name == iface_name)
             .ok_or_else(|| anyhow::anyhow!("No such network interface: {}", iface_name))?;
@@ -27,21 +62,21 @@ impl Capture {
             ..Default::default()
         };
 
-        let (_, rx) = match datalink::channel(&interface, cfg) {
-            Ok(Ethernet(tx, rx)) => (tx, rx),
+        let rx = match datalink::channel(&interface, cfg) {
+            Ok(Ethernet(_tx, rx)) => rx,
             Ok(_) => return Err(anyhow::anyhow!("pf: unhandled channel type")),
             Err(e) => return Err(anyhow::anyhow!("pf: unable to create channel: {}", e)),
         };
 
         Ok(Self {
-            interface,
+            link_type: link_type(&interface),
+            name: Arc::from(interface.name.as_str()),
             rx,
-            buf: [0u8; 1600],
         })
     }
 
-    pub fn interface(&self) -> &NetworkInterface {
-        &self.interface
+    pub fn interface_name(&self) -> &str {
+        &self.name
     }
 
     pub fn host_ips(&self) -> Vec<IpAddr> {
@@ -58,55 +93,73 @@ impl Capture {
         ips
     }
 
-    pub fn next_ethernet<'a>(&'a mut self) -> anyhow::Result<Option<EthernetPacket<'a>>> {
+    /// Waits up to the read timeout (200 ms); `Ok(None)` means it elapsed
+    /// without a frame, so callers can check for shutdown.
+    pub fn next_frame(&mut self) -> anyhow::Result<Option<CapturedFrame>> {
         match self.rx.next() {
-            Ok(packet) => {
-                let payload_offset;
-                if cfg!(any(target_os = "macos", target_os = "ios"))
-                    && self.interface.is_up()
-                    && !self.interface.is_broadcast()
-                    && ((!self.interface.is_loopback() && self.interface.is_point_to_point())
-                        || self.interface.is_loopback())
-                {
-                    if self.interface.is_loopback() {
-                        // The pnet code for BPF loopback adds a zero'd out Ethernet header
-                        payload_offset = 14;
-                    } else {
-                        // Maybe is TUN interface
-                        payload_offset = 0;
-                    }
-                    if packet.len() > payload_offset {
-                        let version = Ipv4Packet::new(&packet[payload_offset..])
-                            .unwrap()
-                            .get_version();
-                        if version == 4 {
-                            let mut fake = MutableEthernetPacket::new(&mut self.buf[..]).unwrap();
-                            fake.set_destination(MacAddr(0, 0, 0, 0, 0, 0));
-                            fake.set_source(MacAddr(0, 0, 0, 0, 0, 0));
-                            fake.set_ethertype(EtherTypes::Ipv4);
-                            fake.set_payload(&packet[payload_offset..]);
-                            let im = EthernetPacket::new(&self.buf[..]).unwrap();
-                            return Ok(Some(im));
-                        } else if version == 6 {
-                            let mut fake = MutableEthernetPacket::new(&mut self.buf[..]).unwrap();
-                            fake.set_destination(MacAddr(0, 0, 0, 0, 0, 0));
-                            fake.set_source(MacAddr(0, 0, 0, 0, 0, 0));
-                            fake.set_ethertype(EtherTypes::Ipv6);
-                            fake.set_payload(&packet[payload_offset..]);
-                            let im = EthernetPacket::new(&self.buf[..]).unwrap();
-                            return Ok(Some(im));
-                        }
-                    }
-                }
-                Ok(Some(EthernetPacket::new(packet).unwrap()))
-            }
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::TimedOut {
-                    Ok(None)
-                } else {
-                    Err(anyhow::anyhow!("pf: unable to receive packet: {}", e))
-                }
-            }
+            Ok(packet) => Ok(Some(CapturedFrame {
+                // pnet provides no capture time; see `crate::frame`.
+                timestamp: SystemTime::now(),
+                interface: Arc::clone(&self.name),
+                link_type: self.link_type,
+                data: packet.to_vec(),
+            })),
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Ok(None),
+            Err(e) => Err(anyhow::anyhow!("pf: unable to receive packet: {}", e)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_bsd_is_always_ethernet() {
+        assert_eq!(
+            link_type_for(false, true, false, true, false),
+            LinkType::Ethernet
+        );
+        assert_eq!(
+            link_type_for(false, true, false, false, true),
+            LinkType::Ethernet
+        );
+    }
+
+    #[test]
+    fn bsd_loopback_and_tun_are_special() {
+        assert_eq!(
+            link_type_for(true, true, false, true, false),
+            LinkType::Loopback
+        );
+        assert_eq!(
+            link_type_for(true, true, false, false, true),
+            LinkType::RawIp
+        );
+        // Loopback wins over point-to-point.
+        assert_eq!(
+            link_type_for(true, true, false, true, true),
+            LinkType::Loopback
+        );
+    }
+
+    #[test]
+    fn bsd_regular_down_or_broadcast_is_ethernet() {
+        assert_eq!(
+            link_type_for(true, true, true, false, false),
+            LinkType::Ethernet
+        );
+        assert_eq!(
+            link_type_for(true, true, false, false, false),
+            LinkType::Ethernet
+        );
+        assert_eq!(
+            link_type_for(true, false, false, true, false),
+            LinkType::Ethernet
+        );
+        assert_eq!(
+            link_type_for(true, true, true, true, false),
+            LinkType::Ethernet
+        );
     }
 }
