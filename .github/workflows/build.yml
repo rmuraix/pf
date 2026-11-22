@@ -48,7 +48,9 @@ jobs:
         # a clean Ctrl-C shutdown (exit status 0). Needs root for raw capture.
         if: runner.os == 'Linux'
         run: |
-          sudo timeout --preserve-status -s INT 4 ./target/*/pf -i lo --no-color > capture.log &
+          # Binary of whichever profile this run built (a cache may hold both).
+          pf=$(ls -t ./target/debug/pf ./target/release/pf 2>/dev/null | head -n1)
+          sudo timeout --preserve-status -s INT 4 "$pf" -i lo --no-color > capture.log &
           sleep 1
           ping -c 2 127.0.0.1 > /dev/null
           wait %1

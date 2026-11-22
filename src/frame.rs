@@ -57,11 +57,6 @@ impl CapturedFrame {
     pub fn captured_len(&self) -> usize {
         self.data.len()
     }
-
-    /// Whether the capture was cut short of the on-the-wire frame.
-    pub fn is_truncated(&self) -> bool {
-        self.captured_len() < self.original_len
-    }
 }
 
 #[cfg(test)]
@@ -81,11 +76,5 @@ mod tests {
     #[test]
     fn captured_len_matches_data() {
         assert_eq!(frame(42).captured_len(), 42);
-    }
-
-    #[test]
-    fn truncation_is_detected() {
-        assert!(!frame(42).is_truncated());
-        assert!(frame(1500).is_truncated());
     }
 }

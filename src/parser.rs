@@ -698,6 +698,16 @@ mod tests {
     }
 
     #[test]
+    fn ipv4_total_length_zero_from_tso_is_reported() {
+        // NIC segmentation offload leaves total length 0 in outbound captures.
+        let mut ip = ipv4(TCP, &tcp(1, 2, 0));
+        ip[2] = 0;
+        ip[3] = 0;
+        let r = reason(parser(false).parse(&eth_frame(IPV4, &ip)));
+        assert_eq!(r, UnparsedReason::Malformed("IPv4"));
+    }
+
+    #[test]
     fn every_truncation_is_handled_without_panic() {
         let packets = [
             (IPV4, ipv4(TCP, &tcp(1, 2, 8))),
@@ -710,10 +720,12 @@ mod tests {
         for (ethertype, payload) in packets {
             let full = ethernet(ethertype, &payload);
             for len in 0..full.len() {
-                // Must not panic; a cut packet is never an event with data
-                // that was not captured, except where the cut only drops
-                // trailing payload bytes (checked by the lengths below).
-                let _ = parser(false).parse(&frame(LinkType::Ethernet, full[..len].to_vec()));
+                let cut = frame(LinkType::Ethernet, full[..len].to_vec());
+                assert!(
+                    matches!(parser(false).parse(&cut), ParseOutcome::Unparsed(_)),
+                    "cut at {len} of {} must not yield an event",
+                    full.len()
+                );
             }
             assert!(matches!(
                 parser(false).parse(&frame(LinkType::Ethernet, full)),
