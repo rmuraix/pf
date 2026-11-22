@@ -20,9 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5.3.0
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache
+        uses: actions/cache@v6.1.0
         with:
-          shared-key: "app"
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Format check
         run: mise run fmt:check
       - name: Clippy (deny warnings)
