@@ -12,4 +12,4 @@ anyhow = "1"
 ctrlc = { version = "3", features = ["termination"] }
 pcap = "2.5"
 etherparse = "0.21"
-ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
